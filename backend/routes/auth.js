@@ -137,9 +137,14 @@ router.post('/admin/login', authLimiter, async (req, res) => {
     const admin = result.rows[0];
 
     // Verify password using bcrypt
+    console.log('Comparing passwords...');
+    console.log('Input password length:', password.length);
+    console.log('Stored hash:', admin.password);
     const passwordMatch = await bcrypt.compare(password, admin.password);
+    console.log('Password match result:', passwordMatch);
 
     if (!passwordMatch) {
+      console.log('Password mismatch for user:', username);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
