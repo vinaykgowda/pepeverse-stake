@@ -39,6 +39,11 @@
 - **Output Directory:** (leave empty)
 - **Install Command:** `npm install`
 
+**⚠️ IMPORTANT:** The backend has been restructured for Vercel's serverless environment:
+- Entry point: `backend/api/index.js` (serverless function)
+- No `app.listen()` - exports Express app directly
+- Database connection is cached across invocations
+
 ### 2.2 Add Environment Variables
 
 Click "Environment Variables" and add these:
