@@ -18,19 +18,25 @@ class HeliusProxyService {
     this.apiKey = process.env.HELIUS_API_KEY;
     this.baseUrl = process.env.HELIUS_MAINNET_ENDPOINT;
     
+    // Don't throw errors in constructor for serverless compatibility
+    // Just log warnings and set disabled flag
     if (!this.apiKey) {
-      throw new Error('HELIUS_API_KEY environment variable is required');
+      console.warn('HELIUS_API_KEY environment variable is not set - Helius features will be disabled');
+      this.disabled = true;
     }
     
     if (!this.baseUrl) {
-      throw new Error('HELIUS_MAINNET_ENDPOINT environment variable is required');
+      console.warn('HELIUS_MAINNET_ENDPOINT environment variable is not set - Helius features will be disabled');
+      this.disabled = true;
     }
     
     // In-memory LRU cache: 10,000 entries, 1 hour TTL
     // Requirements: 20.1, 20.2, 20.3, 20.4
     this.cache = new LRUCache(10000, 60 * 60 * 1000);
     
-    console.log('HeliusProxyService initialized with cache (10,000 entries, 1 hour TTL)');
+    if (!this.disabled) {
+      console.log('HeliusProxyService initialized with cache (10,000 entries, 1 hour TTL)');
+    }
   }
   
   /**
@@ -42,6 +48,10 @@ class HeliusProxyService {
    * @returns {Promise<object>} NFT data
    */
   async getAssetsByOwner(ownerAddress, options = {}) {
+    if (this.disabled) {
+      throw new Error('Helius service is not configured. Please set HELIUS_API_KEY and HELIUS_MAINNET_ENDPOINT environment variables.');
+    }
+    
     const cacheKey = `assets:${ownerAddress}:${JSON.stringify(options)}`;
     
     // Check cache
@@ -102,6 +112,10 @@ class HeliusProxyService {
    * @returns {Promise<object>} NFT metadata
    */
   async getAssetMetadata(mintAddress) {
+    if (this.disabled) {
+      throw new Error('Helius service is not configured. Please set HELIUS_API_KEY and HELIUS_MAINNET_ENDPOINT environment variables.');
+    }
+    
     const cacheKey = `metadata:${mintAddress}`;
     
     // Check cache

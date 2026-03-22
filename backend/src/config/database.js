@@ -11,7 +11,9 @@ class DatabaseManager {
     this.connectionString = process.env.DATABASE_URL;
     
     if (!this.connectionString) {
-      throw new Error('DATABASE_URL environment variable is required');
+      console.warn('DATABASE_URL environment variable is not set - database features will be disabled');
+      this.disabled = true;
+      return;
     }
     
     // Neon DB handles connection pooling automatically for serverless
@@ -38,6 +40,9 @@ class DatabaseManager {
    * @returns {Promise<Object>} Query result
    */
   async query(text, params, retries = 3) {
+    if (this.disabled) {
+      throw new Error('Database is not configured. Please set DATABASE_URL environment variable.');
+    }
     const start = Date.now();
     let lastError;
     

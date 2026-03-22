@@ -16,16 +16,16 @@ class NetworkConfig {
     // Helius mainnet endpoint
     this.heliusMainnetEndpoint = process.env.HELIUS_MAINNET_ENDPOINT;
     
-    // Network identifier - NO FALLBACK, must be explicitly set
-    this.network = process.env.SOLANA_NETWORK;
-    if (!this.network) {
-      throw new Error('SOLANA_NETWORK environment variable is required');
+    // Network identifier - use default if not set for serverless compatibility
+    this.network = process.env.SOLANA_NETWORK || 'mainnet-beta';
+    if (!process.env.SOLANA_NETWORK) {
+      console.warn('SOLANA_NETWORK not set, defaulting to mainnet-beta');
     }
     
     // Mainnet explorer URL
     this.explorerUrl = 'https://explorer.solana.com';
     
-    // Validate configuration on initialization
+    // Validate configuration on initialization (non-fatal)
     this._validateConfig();
   }
   
@@ -49,14 +49,16 @@ class NetworkConfig {
     }
     
     if (missing.length > 0) {
-      throw new Error(
-        `Missing required network configuration: ${missing.join(', ')}\n` +
-        'Please ensure all required environment variables are set in Vercel.'
+      console.warn(
+        `Missing network configuration: ${missing.join(', ')}\n` +
+        'Some features may not work until these environment variables are set in Vercel.'
       );
+      this.disabled = true;
+      return;
     }
     
     // Validate network is set to mainnet
-    if (this.network !== 'mainnet') {
+    if (this.network !== 'mainnet' && this.network !== 'mainnet-beta') {
       console.warn(
         `Warning: SOLANA_NETWORK is set to "${this.network}" but should be "mainnet" for production`
       );
