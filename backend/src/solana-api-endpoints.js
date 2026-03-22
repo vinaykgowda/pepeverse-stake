@@ -112,39 +112,37 @@ router.post('/nfts/stake/quote', verifyJWT, async (req, res) => {
       });
     }
 
-    const connection = pool.promise();
-
     // Get collection details
-    const [collections] = await connection.query(
-      'SELECT id, name, stake_fee FROM collections WHERE id = ?',
+    const collectionsResult = await pool.query(
+      'SELECT id, name, stake_fee FROM collections WHERE id = $1',
       [collectionId]
     );
 
-    if (collections.length === 0) {
+    if (collectionsResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Collection not found'
       });
     }
 
-    const collection = collections[0];
+    const collection = collectionsResult.rows[0];
     const stakeFee = parseFloat(collection.stake_fee) || 0;
     const totalFee = stakeFee * nfts.length;
 
     // Get fee recipient wallet from settings
-    const [feeRecipientSettings] = await connection.query(
-      'SELECT value FROM settings WHERE key_name = ?',
+    const feeRecipientResult = await pool.query(
+      'SELECT value FROM settings WHERE key_name = $1',
       ['rewards_wallet']
     );
 
-    if (stakeFee > 0 && (feeRecipientSettings.length === 0 || !feeRecipientSettings[0].value)) {
+    if (stakeFee > 0 && (feeRecipientResult.rows.length === 0 || !feeRecipientResult.rows[0].value)) {
       return res.status(500).json({
         success: false,
         message: 'Fee recipient wallet not configured'
       });
     }
 
-    const feeRecipient = feeRecipientSettings[0]?.value;
+    const feeRecipient = feeRecipientResult.rows[0]?.value;
 
     logger.info('Stake quote generated', {
       collectionName: collection.name,
@@ -346,10 +344,9 @@ router.get('/transactions', verifyJWT, async (req, res) => {
 router.get('/admin/collections', verifyJWT, async (req, res) => {
   try {
     const { parseHashlist } = require('./utils/hashlistParser');
-    const connection = pool.promise();
 
     // Fetch collections with basic data
-    const [collections] = await connection.query(`
+    const collectionsResult = await pool.query(`
       SELECT
         c.id,
         c.name,
@@ -363,9 +360,11 @@ router.get('/admin/collections', verifyJWT, async (req, res) => {
         COUNT(s.id) as staked_count
       FROM collections c
       LEFT JOIN staked_nfts s ON c.id = s.collection_id
-      GROUP BY c.id
+      GROUP BY c.id, c.name, c.creator_address, c.stake_fee, c.unstake_fee, c.claim_fee, c.created_at, c.updated_at, c.hashlist
       ORDER BY c.id DESC;
     `);
+    
+    const collections = collectionsResult.rows;
 
     // Process each collection to get the correct hashlist count
     const processedCollections = collections.map(collection => {
@@ -398,10 +397,9 @@ router.get('/admin/collections', verifyJWT, async (req, res) => {
 router.get('/collections', verifyJWT, async (req, res) => {
   try {
     const { parseHashlist } = require('./utils/hashlistParser');
-    const connection = pool.promise();
 
     // Fetch only active collections with minimal data needed for staking
-    const [collections] = await connection.query(`
+    const collectionsResult = await pool.query(`
       SELECT
         c.id,
         c.name,
@@ -413,9 +411,11 @@ router.get('/collections', verifyJWT, async (req, res) => {
       FROM collections c
       LEFT JOIN staked_nfts s ON c.id = s.collection_id
       WHERE c.is_active = TRUE
-      GROUP BY c.id
+      GROUP BY c.id, c.name, c.stake_fee, c.unstake_fee, c.claim_fee, c.hashlist
       ORDER BY c.name ASC;
     `);
+    
+    const collections = collectionsResult.rows;
 
     // Process collections using standardized parser
     const processedCollections = collections.map(collection => {
@@ -467,9 +467,8 @@ router.post('/admin/collections', verifyJWT, verifyAdmin, upload.single('hashlis
     }
 
     // Store in newline-separated format (Requirement 15.1)
-    const connection = pool.promise();
-    await connection.query(
-      'INSERT INTO collections (name, creator_address, hashlist) VALUES (?, ?, ?)',
+    await pool.query(
+      'INSERT INTO collections (name, creator_address, hashlist) VALUES ($1, $2, $3)',
       [name, creator_address, hashlistString.trim()]
     );
 
@@ -496,32 +495,32 @@ router.put('/collections/:id', verifyJWT, verifyAdmin, upload.single('hashlist')
     const { id } = req.params;
     const { name, creator_address, stake_fee, unstake_fee, claim_fee } = req.body;
 
-    const connection = pool.promise();
     let updateFields = [];
     const values = [];
+    let paramIndex = 1;
 
     if (name !== undefined) {
-      updateFields.push('name = ?');
+      updateFields.push(`name = $${paramIndex++}`);
       values.push(name);
     }
 
     if (creator_address !== undefined) {
-      updateFields.push('creator_address = ?');
+      updateFields.push(`creator_address = $${paramIndex++}`);
       values.push(creator_address);
     }
 
     if (stake_fee !== undefined) {
-      updateFields.push('stake_fee = ?');
+      updateFields.push(`stake_fee = $${paramIndex++}`);
       values.push(stake_fee);
     }
 
     if (unstake_fee !== undefined) {
-      updateFields.push('unstake_fee = ?');
+      updateFields.push(`unstake_fee = $${paramIndex++}`);
       values.push(unstake_fee);
     }
 
     if (claim_fee !== undefined) {
-      updateFields.push('claim_fee = ?');
+      updateFields.push(`claim_fee = $${paramIndex++}`);
       values.push(claim_fee);
     }
 
@@ -541,7 +540,7 @@ router.put('/collections/:id', verifyJWT, verifyAdmin, upload.single('hashlist')
         });
       }
 
-      updateFields.push('hashlist = ?');
+      updateFields.push(`hashlist = $${paramIndex++}`);
       values.push(hashlistString.trim());
     }
 
@@ -554,8 +553,8 @@ router.put('/collections/:id', verifyJWT, verifyAdmin, upload.single('hashlist')
 
     values.push(id);
 
-    await connection.query(
-      `UPDATE collections SET ${updateFields.join(', ')} WHERE id = ?`,
+    await pool.query(
+      `UPDATE collections SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
       values
     );
 
@@ -574,15 +573,13 @@ router.delete('/admin/collections/:id', verifyJWT, verifyAdmin, async (req, res)
   const { id } = req.params;
 
   try {
-    const connection = pool.promise();
-
     // Check if there are staked NFTs for this collection
-    const [nfts] = await connection.query(
-      'SELECT COUNT(*) as count FROM staked_nfts WHERE collection_id = ?',
+    const nftsResult = await pool.query(
+      'SELECT COUNT(*) as count FROM staked_nfts WHERE collection_id = $1',
       [id]
     );
 
-    if (nfts[0].count > 0) {
+    if (parseInt(nftsResult.rows[0].count) > 0) {
       return res.status(400).json({
         success: false,
         message: 'Cannot delete collection with staked NFTs'
@@ -590,20 +587,20 @@ router.delete('/admin/collections/:id', verifyJWT, verifyAdmin, async (req, res)
     }
 
     // Delete collection rewards first
-    await connection.query(
-      'DELETE FROM collection_rewards WHERE collection_id = ?',
+    await pool.query(
+      'DELETE FROM collection_rewards WHERE collection_id = $1',
       [id]
     );
 
     // Delete trait rewards
-    await connection.query(
-      'DELETE FROM trait_rewards WHERE collection_id = ?',
+    await pool.query(
+      'DELETE FROM trait_rewards WHERE collection_id = $1',
       [id]
     );
 
     // Delete collection
-    await connection.query(
-      'DELETE FROM collections WHERE id = ?',
+    await pool.query(
+      'DELETE FROM collections WHERE id = $1',
       [id]
     );
 
@@ -662,8 +659,7 @@ router.get('/admin/dashboard', async (req, res) => {
 // Rewards
 router.get('/admin/rewards', verifyJWT, verifyAdmin, async (req, res) => {
   try {
-    const connection = pool.promise();
-    const [rewards] = await connection.query(
+    const rewardsResult = await pool.query(
       `SELECT cr.*, c.name as collection_name
        FROM collection_rewards cr
        JOIN collections c ON cr.collection_id = c.id`
@@ -671,7 +667,7 @@ router.get('/admin/rewards', verifyJWT, verifyAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      data: rewards
+      data: rewardsResult.rows
     });
   } catch (error) {
     logger.error('Error fetching rewards', { error });
@@ -693,16 +689,15 @@ router.post('/admin/rewards', verifyJWT, verifyAdmin, async (req, res) => {
   }
 
   try {
-    const connection = pool.promise();
-    const [result] = await connection.query(
-      'INSERT INTO collection_rewards (collection_id, token_address, token_symbol, token_decimals, daily_rate) VALUES (?, ?, ?, ?, ?)',
+    const result = await pool.query(
+      'INSERT INTO collection_rewards (collection_id, token_address, token_symbol, token_decimals, daily_rate) VALUES ($1, $2, $3, $4, $5) RETURNING id',
       [collection_id, token_address, token_symbol, token_decimals || 9, daily_rate]
     );
 
     res.json({
       success: true,
       message: 'Reward added successfully',
-      id: result.insertId
+      id: result.rows[0].id
     });
   } catch (error) {
     logger.error('Error adding reward', { error });
@@ -718,17 +713,17 @@ router.put('/admin/rewards/:id', verifyJWT, verifyAdmin, async (req, res) => {
   const { daily_rate, is_active } = req.body;
 
   try {
-    const connection = pool.promise();
     const updates = [];
     const values = [];
+    let paramIndex = 1;
 
     if (daily_rate !== undefined) {
-      updates.push('daily_rate = ?');
+      updates.push(`daily_rate = $${paramIndex++}`);
       values.push(daily_rate);
     }
 
     if (is_active !== undefined) {
-      updates.push('is_active = ?');
+      updates.push(`is_active = $${paramIndex++}`);
       values.push(is_active);
     }
 
@@ -739,9 +734,11 @@ router.put('/admin/rewards/:id', verifyJWT, verifyAdmin, async (req, res) => {
       });
     }
 
-    await connection.query(
-      `UPDATE collection_rewards SET ${updates.join(', ')} WHERE id = ?`,
-      [...values, id]
+    values.push(id);
+
+    await pool.query(
+      `UPDATE collection_rewards SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+      values
     );
 
     res.json({
@@ -761,9 +758,8 @@ router.delete('/admin/rewards/:id', verifyJWT, verifyAdmin, async (req, res) => 
   const { id } = req.params;
 
   try {
-    const connection = pool.promise();
-    await connection.query(
-      'DELETE FROM collection_rewards WHERE id = ?',
+    await pool.query(
+      'DELETE FROM collection_rewards WHERE id = $1',
       [id]
     );
 
@@ -783,8 +779,7 @@ router.delete('/admin/rewards/:id', verifyJWT, verifyAdmin, async (req, res) => 
 // Trait rewards
 router.get('/admin/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => {
   try {
-    const connection = pool.promise();
-    const [rewards] = await connection.query(
+    const rewardsResult = await pool.query(
       `SELECT tr.*, c.name as collection_name
        FROM trait_rewards tr
        JOIN collections c ON tr.collection_id = c.id`
@@ -792,7 +787,7 @@ router.get('/admin/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      data: rewards
+      data: rewardsResult.rows
     });
   } catch (error) {
     logger.error('Error fetching trait rewards', { error });
@@ -814,16 +809,15 @@ router.post('/admin/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => 
   }
 
   try {
-    const connection = pool.promise();
-    const [result] = await connection.query(
-      'INSERT INTO trait_rewards (collection_id, trait_type, trait_value, token_address, token_symbol, multiplier) VALUES (?, ?, ?, ?, ?, ?)',
+    const result = await pool.query(
+      'INSERT INTO trait_rewards (collection_id, trait_type, trait_value, token_address, token_symbol, multiplier) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
       [collection_id, trait_type, trait_value, token_address, token_symbol, multiplier]
     );
 
     res.json({
       success: true,
       message: 'Trait reward added successfully',
-      id: result.insertId
+      id: result.rows[0].id
     });
   } catch (error) {
     logger.error('Error adding trait reward', { error });
@@ -839,17 +833,17 @@ router.put('/admin/trait-rewards/:id', verifyJWT, verifyAdmin, async (req, res) 
   const { multiplier, is_active } = req.body;
 
   try {
-    const connection = pool.promise();
     const updates = [];
     const values = [];
+    let paramIndex = 1;
 
     if (multiplier !== undefined) {
-      updates.push('multiplier = ?');
+      updates.push(`multiplier = $${paramIndex++}`);
       values.push(multiplier);
     }
 
     if (is_active !== undefined) {
-      updates.push('is_active = ?');
+      updates.push(`is_active = $${paramIndex++}`);
       values.push(is_active);
     }
 
@@ -860,9 +854,11 @@ router.put('/admin/trait-rewards/:id', verifyJWT, verifyAdmin, async (req, res) 
       });
     }
 
-    await connection.query(
-      `UPDATE trait_rewards SET ${updates.join(', ')} WHERE id = ?`,
-      [...values, id]
+    values.push(id);
+
+    await pool.query(
+      `UPDATE trait_rewards SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+      values
     );
 
     res.json({
@@ -882,9 +878,8 @@ router.delete('/admin/trait-rewards/:id', verifyJWT, verifyAdmin, async (req, re
   const { id } = req.params;
 
   try {
-    const connection = pool.promise();
-    await connection.query(
-      'DELETE FROM trait_rewards WHERE id = ?',
+    await pool.query(
+      'DELETE FROM trait_rewards WHERE id = $1',
       [id]
     );
 
@@ -904,14 +899,13 @@ router.delete('/admin/trait-rewards/:id', verifyJWT, verifyAdmin, async (req, re
 // Admin users
 router.get('/admin/managers', verifyJWT, verifyAdmin, async (req, res) => {
   try {
-    const connection = pool.promise();
-    const [admins] = await connection.query(
+    const adminsResult = await pool.query(
       'SELECT id, username, email, is_super_admin, created_at, last_login FROM admins'
     );
 
     res.json({
       success: true,
-      data: admins
+      data: adminsResult.rows
     });
   } catch (error) {
     logger.error('Error fetching admins', { error });
@@ -936,15 +930,13 @@ router.put('/admin/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
   }
 
   try {
-    const connection = pool.promise();
-
     // Check if admin exists
-    const [admins] = await connection.query(
-      'SELECT id, password FROM admins WHERE id = ?',
+    const adminsResult = await pool.query(
+      'SELECT id, password FROM admins WHERE id = $1',
       [id]
     );
 
-    if (admins.length === 0) {
+    if (adminsResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Admin not found'
@@ -953,7 +945,7 @@ router.put('/admin/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
 
     // Verify current password if changing password
     if (password && currentPassword) {
-      const passwordMatch = await bcrypt.compare(currentPassword, admins[0].password);
+      const passwordMatch = await bcrypt.compare(currentPassword, adminsResult.rows[0].password);
 
       if (!passwordMatch) {
         return res.status(401).json({
@@ -966,46 +958,47 @@ router.put('/admin/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
     // Update admin
     const updates = [];
     const values = [];
+    let paramIndex = 1;
 
     if (username) {
       // Check if username is already taken
-      const [existingAdmins] = await connection.query(
-        'SELECT id FROM admins WHERE username = ? AND id != ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM admins WHERE username = $1 AND id != $2',
         [username, id]
       );
 
-      if (existingAdmins.length > 0) {
+      if (existingResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
           message: 'Username is already taken'
         });
       }
 
-      updates.push('username = ?');
+      updates.push(`username = $${paramIndex++}`);
       values.push(username);
     }
 
     if (email) {
       // Check if email is already taken
-      const [existingAdmins] = await connection.query(
-        'SELECT id FROM admins WHERE email = ? AND id != ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM admins WHERE email = $1 AND id != $2',
         [email, id]
       );
 
-      if (existingAdmins.length > 0) {
+      if (existingResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
           message: 'Email is already taken'
         });
       }
 
-      updates.push('email = ?');
+      updates.push(`email = $${paramIndex++}`);
       values.push(email);
     }
 
     if (password && currentPassword) {
       const hashedPassword = await bcrypt.hash(password, 10);
-      updates.push('password = ?');
+      updates.push(`password = $${paramIndex++}`);
       values.push(hashedPassword);
     }
 
@@ -1016,9 +1009,11 @@ router.put('/admin/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
       });
     }
 
-    await connection.query(
-      `UPDATE admins SET ${updates.join(', ')} WHERE id = ?`,
-      [...values, id]
+    values.push(id);
+
+    await pool.query(
+      `UPDATE admins SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+      values
     );
 
     res.json({
@@ -1045,15 +1040,13 @@ router.post('/admin/managers', verifyJWT, verifyAdmin, async (req, res) => {
   }
 
   try {
-    const connection = pool.promise();
-
     // Check if admin already exists
-    const [existingAdmins] = await connection.query(
-      'SELECT id FROM admins WHERE username = ? OR (email = ? AND email IS NOT NULL)',
+    const existingResult = await pool.query(
+      'SELECT id FROM admins WHERE username = $1 OR (email = $2 AND email IS NOT NULL)',
       [username, email]
     );
 
-    if (existingAdmins.length > 0) {
+    if (existingResult.rows.length > 0) {
       return res.status(400).json({
         success: false,
         message: 'Admin with this username or email already exists'
@@ -1064,15 +1057,15 @@ router.post('/admin/managers', verifyJWT, verifyAdmin, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert new admin
-    const [result] = await connection.query(
-      'INSERT INTO admins (username, password, email) VALUES (?, ?, ?)',
+    const result = await pool.query(
+      'INSERT INTO admins (username, password, email) VALUES ($1, $2, $3) RETURNING id',
       [username, hashedPassword, email]
     );
 
     res.json({
       success: true,
       message: 'Admin added successfully',
-      id: result.insertId
+      id: result.rows[0].id
     });
   } catch (error) {
     logger.error('Error adding admin', { error });
@@ -1087,30 +1080,28 @@ router.delete('/admin/managers/:id', verifyJWT, verifyAdmin, async (req, res) =>
   const { id } = req.params;
 
   try {
-    const connection = pool.promise();
-
     // Check if trying to delete a super admin
-    const [admin] = await connection.query(
-      'SELECT is_super_admin FROM admins WHERE id = ?',
+    const adminResult = await pool.query(
+      'SELECT is_super_admin FROM admins WHERE id = $1',
       [id]
     );
 
-    if (admin.length === 0) {
+    if (adminResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Admin not found'
       });
     }
 
-    if (admin[0].is_super_admin) {
+    if (adminResult.rows[0].is_super_admin) {
       return res.status(400).json({
         success: false,
         message: 'Cannot delete super admin'
       });
     }
 
-    await connection.query(
-      'DELETE FROM admins WHERE id = ?',
+    await pool.query(
+      'DELETE FROM admins WHERE id = $1',
       [id]
     );
 
@@ -1140,7 +1131,6 @@ router.put('/admin/settings', verifyJWT, verifyAdmin, async (req, res) => {
   }
 
   try {
-    const connection = pool.promise();
     const { encryptPrivateKey } = require('./solana-transaction-utils');
 
     for (const setting of settings) {
@@ -1171,8 +1161,8 @@ router.put('/admin/settings', verifyJWT, verifyAdmin, async (req, res) => {
         }
       }
 
-      await connection.query(
-        'UPDATE settings SET value = ? WHERE key_name = ?',
+      await pool.query(
+        'UPDATE settings SET value = $1 WHERE key_name = $2',
         [valueToStore, setting.key_name]
       );
     }
@@ -1193,13 +1183,12 @@ router.put('/admin/settings', verifyJWT, verifyAdmin, async (req, res) => {
 // Also update the get settings endpoint to hide sensitive data:
 router.get('/admin/settings', verifyJWT, verifyAdmin, async (req, res) => {
   try {
-    const connection = pool.promise();
-    const [settings] = await connection.query(
+    const settingsResult = await pool.query(
       'SELECT key_name, value, description, updated_at FROM settings'
     );
 
     // Filter sensitive settings
-    const filteredSettings = settings.map(setting => {
+    const filteredSettings = settingsResult.rows.map(setting => {
       if (setting.key_name === 'rewards_wallet_encrypted_key') {
         return {
           ...setting,
@@ -1225,39 +1214,37 @@ router.get('/admin/settings', verifyJWT, verifyAdmin, async (req, res) => {
 
 router.get('/debug/claim-timestamps', verifyJWT, async (req, res) => {
   try {
-    const connection = pool.promise();
-
     // Get staked NFTs with timestamps
-    const [nfts] = await connection.query(
+    const nftsResult = await pool.query(
       `SELECT
          s.id,
          s.mint_address,
          s.stake_timestamp,
          s.last_claim_timestamp,
          c.name as collection_name,
-         TIMESTAMPDIFF(MINUTE, COALESCE(s.last_claim_timestamp, s.stake_timestamp), NOW()) as minutes_since_last_claim
+         EXTRACT(EPOCH FROM (NOW() - COALESCE(s.last_claim_timestamp, s.stake_timestamp)))/60 as minutes_since_last_claim
        FROM staked_nfts s
        JOIN collections c ON s.collection_id = c.id
-       WHERE s.wallet_address = ?
+       WHERE s.wallet_address = $1
        ORDER BY s.stake_timestamp DESC`,
       [req.user.walletAddress]
     );
 
     // Check if column exists
-    const [columns] = await connection.query(`
-      SELECT COLUMN_NAME
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_NAME = 'staked_nfts'
-      AND COLUMN_NAME = 'last_claim_timestamp'
+    const columnsResult = await pool.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'staked_nfts'
+      AND column_name = 'last_claim_timestamp'
     `);
 
     res.json({
       success: true,
       data: {
         wallet_address: req.user.walletAddress,
-        has_last_claim_column: columns.length > 0,
-        staked_nfts: nfts,
-        total_staked: nfts.length,
+        has_last_claim_column: columnsResult.rows.length > 0,
+        staked_nfts: nftsResult.rows,
+        total_staked: nftsResult.rows.length,
         current_time: new Date().toISOString()
       }
     });

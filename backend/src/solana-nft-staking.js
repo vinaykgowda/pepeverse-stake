@@ -80,17 +80,16 @@ async function verifyNFTInCollection(mintAddress, collectionId) {
   try {
     const { isAddressInHashlist } = require('./utils/hashlistParser');
     
-    const connection = pool.promise();
-    const [collections] = await connection.query(
-      'SELECT hashlist FROM collections WHERE id = ?',
+    const collectionsResult = await pool.query(
+      'SELECT hashlist FROM collections WHERE id = $1',
       [collectionId]
     );
 
-    if (collections.length === 0) {
+    if (collectionsResult.rows.length === 0) {
       return false;
     }
 
-    const hashlistString = collections[0].hashlist;
+    const hashlistString = collectionsResult.rows[0].hashlist;
     
     // Use the standardized parser (Requirement 15.1)
     return isAddressInHashlist(mintAddress, hashlistString);
@@ -136,24 +135,24 @@ async function verifyNFTOwnership(mintAddress, walletAddress) {
 // Stake NFT
 // Stake NFTs with fee collection
 async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = null) {
-  const connection = await pool.promise().getConnection();
+  const connection = await pool.getConnection();
 
   try {
-    await connection.beginTransaction();
+    await connection.query('BEGIN');
 
     console.log(`Starting stake process for ${nfts.length} NFTs for wallet ${walletAddress}`);
 
     // Validate collection exists and get fees
-    const [collections] = await connection.query(
-      'SELECT id, name, stake_fee FROM collections WHERE id = ?',
+    const collectionsResult = await connection.query(
+      'SELECT id, name, stake_fee FROM collections WHERE id = $1',
       [collectionId]
     );
 
-    if (collections.length === 0) {
+    if (collectionsResult.rows.length === 0) {
       throw new Error('Collection not found');
     }
 
-    const collection = collections[0];
+    const collection = collectionsResult.rows[0];
     const stakeFee = parseFloat(collection.stake_fee) || 0;
     const totalFee = stakeFee * nfts.length;
 
@@ -162,16 +161,16 @@ async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = n
     // Get fee recipient wallet from settings
     let feeRecipientWallet = null;
     if (totalFee > 0) {
-      const [feeRecipientSettings] = await connection.query(
-        'SELECT value FROM settings WHERE key_name = ?',
+      const feeRecipientResult = await connection.query(
+        'SELECT value FROM settings WHERE key_name = $1',
         ['rewards_wallet']
       );
 
-      if (feeRecipientSettings.length === 0 || !feeRecipientSettings[0].value) {
+      if (feeRecipientResult.rows.length === 0 || !feeRecipientResult.rows[0].value) {
         throw new Error('Fee recipient wallet not configured in settings');
       }
 
-      feeRecipientWallet = feeRecipientSettings[0].value;
+      feeRecipientWallet = feeRecipientResult.rows[0].value;
       console.log(`Fee recipient wallet: ${feeRecipientWallet}`);
 
       // Verify payment if fee is required
@@ -217,22 +216,22 @@ async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = n
     console.log(`✅ Ownership verified for all ${nfts.length} NFTs`);
 
     // Check if NFTs are already staked
-    const placeholders = mintAddresses.map(() => '?').join(',');
+    const placeholders = mintAddresses.map((_, i) => `$${i + 1}`).join(',');
 
-    const [existingStakes] = await connection.query(
+    const existingStakesResult = await connection.query(
       `SELECT mint_address FROM staked_nfts WHERE mint_address IN (${placeholders})`,
       mintAddresses
     );
 
-    if (existingStakes.length > 0) {
-      const alreadyStaked = existingStakes.map(stake => stake.mint_address);
+    if (existingStakesResult.rows.length > 0) {
+      const alreadyStaked = existingStakesResult.rows.map(stake => stake.mint_address);
       throw new Error(`Some NFTs are already staked: ${alreadyStaked.join(', ')}`);
     }
 
     // Insert staked NFTs
     const stakePromises = nfts.map(nft => {
       return connection.query(
-        'INSERT INTO staked_nfts (wallet_address, mint_address, collection_id, stake_timestamp, traits) VALUES (?, ?, ?, NOW(), ?)',
+        'INSERT INTO staked_nfts (wallet_address, mint_address, collection_id, stake_timestamp, traits) VALUES ($1, $2, $3, NOW(), $4)',
         [
           walletAddress,
           nft.mintAddress,
@@ -247,12 +246,12 @@ async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = n
     // Record the fee transaction if there was one
     if (totalFee > 0 && paymentSignature) {
       await connection.query(
-        'INSERT INTO transactions (wallet_address, transaction_type, amount, status, collection_id, nft_count, transaction_hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO transactions (wallet_address, transaction_type, amount, status, collection_id, nft_count, transaction_hash) VALUES ($1, $2, $3, $4, $5, $6, $7)',
         [walletAddress, 'STAKE_FEE', totalFee, 'CONFIRMED', collectionId, nfts.length, paymentSignature]
       );
     }
 
-    await connection.commit();
+    await connection.query('COMMIT');
 
     console.log(`Successfully staked ${nfts.length} NFTs for wallet ${walletAddress}`);
 
@@ -269,7 +268,7 @@ async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = n
     };
 
   } catch (error) {
-    await connection.rollback();
+    await connection.query('ROLLBACK');
     console.error('Error staking NFTs:', error);
 
     return {
@@ -319,23 +318,25 @@ async function verifyStakingPayment(paymentSignature, fromWallet, toWallet, expe
 
 async function unstakeNFTs(walletAddress, nftIds) {
   // Get a connection from the pool
-  const connection = await pool.promise().getConnection();
+  const connection = await pool.getConnection();
 
   try {
     // Start transaction
-    await connection.beginTransaction();
+    await connection.query('BEGIN');
 
     console.log(`Starting unstake process for ${nftIds.length} NFTs for wallet ${walletAddress}`);
 
     // Get NFT details and validate ownership
-    const placeholders = nftIds.map(() => '?').join(',');
-    const [stakedNFTs] = await connection.query(
+    const placeholders = nftIds.map((_, i) => `$${i + 1}`).join(',');
+    const stakedNFTsResult = await connection.query(
       `SELECT sn.*, c.unstake_fee, c.name as collection_name
        FROM staked_nfts sn
        JOIN collections c ON sn.collection_id = c.id
-       WHERE sn.id IN (${placeholders}) AND sn.wallet_address = ?`,
+       WHERE sn.id IN (${placeholders}) AND sn.wallet_address = $${nftIds.length + 1}`,
       [...nftIds, walletAddress]
     );
+    
+    const stakedNFTs = stakedNFTsResult.rows;
 
     if (stakedNFTs.length === 0) {
       throw new Error('No staked NFTs found for this wallet');
@@ -385,20 +386,20 @@ async function unstakeNFTs(walletAddress, nftIds) {
 
     // Remove NFTs from staked_nfts table
     await connection.query(
-      `DELETE FROM staked_nfts WHERE id IN (${placeholders}) AND wallet_address = ?`,
+      `DELETE FROM staked_nfts WHERE id IN (${placeholders}) AND wallet_address = $${nftIds.length + 1}`,
       [...nftIds, walletAddress]
     );
 
     // Record transaction if there's a fee
     if (totalUnstakeFee > 0) {
       await connection.query(
-        'INSERT INTO transactions (wallet_address, transaction_type, amount, status, nft_count) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO transactions (wallet_address, transaction_type, amount, status, nft_count) VALUES ($1, $2, $3, $4, $5)',
         [walletAddress, 'UNSTAKE', totalUnstakeFee, 'CONFIRMED', nftIds.length]
       );
     }
 
     // Commit transaction
-    await connection.commit();
+    await connection.query('COMMIT');
 
     console.log(`Successfully unstaked ${nftIds.length} NFTs for wallet ${walletAddress}`);
 
@@ -413,7 +414,7 @@ async function unstakeNFTs(walletAddress, nftIds) {
 
   } catch (error) {
     // Rollback transaction on error
-    await connection.rollback();
+    await connection.query('ROLLBACK');
     console.error('Error unstaking NFTs:', error);
 
     return {
@@ -429,16 +430,16 @@ async function unstakeNFTs(walletAddress, nftIds) {
 
 async function getStakedNFTs(walletAddress) {
   try {
-    const connection = pool.promise();
-
-    const [stakedNFTs] = await connection.query(
+    const stakedNFTsResult = await pool.query(
       `SELECT sn.*, c.name as collection_name
        FROM staked_nfts sn
        JOIN collections c ON sn.collection_id = c.id
-       WHERE sn.wallet_address = ?
+       WHERE sn.wallet_address = $1
        ORDER BY sn.stake_timestamp DESC`,
       [walletAddress]
     );
+    
+    const stakedNFTs = stakedNFTsResult.rows;
 
     // Requirement 25.4: Calculate and return remaining lock time for each NFT
     const MINIMUM_STAKE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -475,15 +476,13 @@ async function getStakedNFTs(walletAddress) {
 
 async function getStakingStats(walletAddress) {
   try {
-    const connection = pool.promise();
-
-    const [stats] = await connection.query(
+    const statsResult = await pool.query(
       `SELECT
         c.id,
         c.name,
         COUNT(sn.id) as staked_count
        FROM collections c
-       LEFT JOIN staked_nfts sn ON c.id = sn.collection_id AND sn.wallet_address = ?
+       LEFT JOIN staked_nfts sn ON c.id = sn.collection_id AND sn.wallet_address = $1
        GROUP BY c.id, c.name
        ORDER BY c.name`,
       [walletAddress]
@@ -491,7 +490,7 @@ async function getStakingStats(walletAddress) {
 
     return {
       success: true,
-      data: stats
+      data: statsResult.rows
     };
 
   } catch (error) {

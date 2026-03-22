@@ -17,7 +17,7 @@ const pool = getPool();
  * @returns {Promise<object>} Refresh results
  */
 async function refreshStakedNFTMetadata(collectionId = null, adminWallet = null, walletAddress = null) {
-  const connection = await pool.promise().getConnection();
+  const connection = await pool.getConnection();
   
   try {
     const refreshScope = walletAddress 
@@ -30,16 +30,18 @@ async function refreshStakedNFTMetadata(collectionId = null, adminWallet = null,
     // Get all staked NFTs (optionally filtered by collection or wallet)
     let query = 'SELECT id, mint_address, collection_id, traits FROM staked_nfts WHERE 1=1';
     const params = [];
+    let paramIndex = 1;
     
     if (walletAddress) {
-      query += ' AND wallet_address = ?';
+      query += ` AND wallet_address = $${paramIndex++}`;
       params.push(walletAddress);
     } else if (collectionId) {
-      query += ' AND collection_id = ?';
+      query += ` AND collection_id = $${paramIndex++}`;
       params.push(collectionId);
     }
     
-    const [stakedNFTs] = await connection.query(query, params);
+    const stakedNFTsResult = await connection.query(query, params);
+    const stakedNFTs = stakedNFTsResult.rows;
     
     if (stakedNFTs.length === 0) {
       console.log(`ℹ️ [METADATA_REFRESH] No staked NFTs found`);
@@ -98,7 +100,7 @@ async function refreshStakedNFTMetadata(collectionId = null, adminWallet = null,
           
           // Update traits in database
           await connection.query(
-            'UPDATE staked_nfts SET traits = ? WHERE id = ?',
+            'UPDATE staked_nfts SET traits = $1 WHERE id = $2',
             [freshTraitsJSON, nft.id]
           );
           
@@ -194,23 +196,23 @@ function extractTraitsFromMetadata(metadata) {
  * Useful for targeted updates
  */
 async function refreshSingleNFT(mintAddress, adminWallet = null) {
-  const connection = await pool.promise().getConnection();
+  const connection = await pool.getConnection();
   
   try {
     // Get staked NFT
-    const [nfts] = await connection.query(
-      'SELECT id, mint_address, collection_id, traits FROM staked_nfts WHERE mint_address = ?',
+    const nftsResult = await connection.query(
+      'SELECT id, mint_address, collection_id, traits FROM staked_nfts WHERE mint_address = $1',
       [mintAddress]
     );
     
-    if (nfts.length === 0) {
+    if (nftsResult.rows.length === 0) {
       return {
         success: false,
         message: 'NFT is not currently staked'
       };
     }
     
-    const nft = nfts[0];
+    const nft = nftsResult.rows[0];
     
     // Fetch fresh metadata
     const metadata = await heliusProxy.getAssetMetadata(mintAddress);
@@ -227,7 +229,7 @@ async function refreshSingleNFT(mintAddress, adminWallet = null) {
     const freshTraitsJSON = JSON.stringify(freshTraits);
     
     await connection.query(
-      'UPDATE staked_nfts SET traits = ? WHERE id = ?',
+      'UPDATE staked_nfts SET traits = $1 WHERE id = $2',
       [freshTraitsJSON, nft.id]
     );
     
