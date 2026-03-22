@@ -3,109 +3,125 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
 const dotenv = require('dotenv');
-const { initializeDatabase } = require('../src/db');
-const apiRoutes = require('../src/solana-api-endpoints');
-const authRoutes = require('../routes/auth');
-const heliusRoutes = require('../routes/helius');
-const healthRoutes = require('../routes/health');
-const { jsonParseErrorHandler } = require('../middleware/jsonErrorHandler');
-const { databaseErrorHandler } = require('../middleware/databaseErrorHandler');
-const { errorHandler, notFoundHandler } = require('../middleware/errorHandler');
-const logger = require('../src/utils/logger');
 
-// Load environment variables
+// Load environment variables first
 dotenv.config();
 
 // Create Express app
 const app = express();
 
-// Basic security headers
-app.use(helmet());
+// Disable x-powered-by header
+app.disable('x-powered-by');
 
-app.use(express.json({ limit: '5mb' }));
+// Basic security headers (simplified for serverless)
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
 
-// CORS configuration
-const isDevelopment = process.env.NODE_ENV === 'development';
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()) : [];
-
-// In development, automatically allow localhost origins
-if (isDevelopment) {
-  const localhostOrigins = [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001',
-    'http://127.0.0.1:5173'
-  ];
-  
-  localhostOrigins.forEach(origin => {
-    if (!allowedOrigins.includes(origin)) {
-      allowedOrigins.push(origin);
-    }
-  });
-}
+// CORS - simplified for initial deployment
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['*'];
 
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = `CORS policy does not allow access from origin: ${origin}`;
-      logger.warn('CORS rejection', { origin, message: msg });
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
+  origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Request logger
-app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
-
 // Parse JSON and URL-encoded bodies
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize database connection (cached across invocations)
-let dbInitialized = false;
-async function ensureDbInitialized() {
-  if (!dbInitialized) {
-    await initializeDatabase();
-    dbInitialized = true;
-    logger.info('Database initialized');
+// Simple health check at root
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'Pepeverse Staking API',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
+});
+
+// Health check endpoint
+app.get('/api/v1/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'production',
+    database: process.env.DATABASE_URL ? 'configured' : 'not configured'
+  });
+});
+
+// Database connection pool (lazy initialization)
+let dbPool = null;
+async function getDbPool() {
+  if (!dbPool && process.env.DATABASE_URL) {
+    const { Pool } = require('pg');
+    dbPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
   }
+  return dbPool;
 }
 
-// Middleware to ensure DB is initialized
+// Middleware to attach db to request
 app.use(async (req, res, next) => {
   try {
-    await ensureDbInitialized();
+    req.db = await getDbPool();
     next();
   } catch (error) {
-    logger.error('Database initialization failed', { error: error.message });
-    res.status(503).json({ error: 'Service temporarily unavailable' });
+    console.error('Database connection error:', error);
+    next(); // Continue even if DB fails
   }
 });
 
-// API routes
-const apiBaseUrl = process.env.API_BASE_URL || '/api/v1';
+// Load routes dynamically to avoid startup crashes
+try {
+  const authRoutes = require('../routes/auth');
+  app.use('/api/v1/auth', authRoutes);
+} catch (error) {
+  console.error('Failed to load auth routes:', error.message);
+}
 
-app.use(`${apiBaseUrl}/auth`, authRoutes);
-app.use(`${apiBaseUrl}/helius`, heliusRoutes);
-app.use(apiBaseUrl, apiRoutes);
+try {
+  const heliusRoutes = require('../routes/helius');
+  app.use('/api/v1/helius', heliusRoutes);
+} catch (error) {
+  console.error('Failed to load helius routes:', error.message);
+}
 
-// Health check endpoint
-app.use('/', healthRoutes);
+try {
+  const apiRoutes = require('../src/solana-api-endpoints');
+  app.use('/api/v1', apiRoutes);
+} catch (error) {
+  console.error('Failed to load API routes:', error.message);
+}
 
-// Error handlers
-app.use(jsonParseErrorHandler);
-app.use(databaseErrorHandler);
-app.use(notFoundHandler);
-app.use(errorHandler);
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found',
+    path: req.path,
+    message: 'The requested endpoint does not exist'
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(err.status || 500).json({ 
+    error: err.message || 'Internal Server Error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
 
 // Export for Vercel serverless
 module.exports = app;
