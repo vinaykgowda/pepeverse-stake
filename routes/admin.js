@@ -637,15 +637,20 @@ router.put('/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
     // Verify current password if changing password (check for non-empty strings)
     if (password && password.trim() && currentPassword && currentPassword.trim()) {
       const storedPassword = adminsResult.rows[0].password;
+      console.log('Password verification - Current:', currentPassword, 'Stored:', storedPassword);
       let passwordMatch;
       
       // Check if stored password is bcrypt hash or plain text
       if (storedPassword.startsWith('$2')) {
+        console.log('Using bcrypt comparison');
         passwordMatch = await bcrypt.compare(currentPassword, storedPassword);
       } else {
         // Plain text comparison (temporary for migration)
+        console.log('Using plain text comparison');
         passwordMatch = currentPassword === storedPassword;
       }
+      
+      console.log('Password match result:', passwordMatch);
 
       if (!passwordMatch) {
         return res.status(401).json({
