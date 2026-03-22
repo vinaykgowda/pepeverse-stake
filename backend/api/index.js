@@ -20,26 +20,9 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// CORS - simplified for initial deployment
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['*'];
-
-console.log('CORS - Allowed origins:', allowedOrigins);
-
+// CORS - ALLOW ALL for debugging
 app.use(cors({
-  origin: function(origin, callback) {
-    console.log('CORS - Request origin:', origin);
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('CORS - Rejected origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -48,13 +31,10 @@ app.use(cors({
 // Add explicit CORS headers for all responses
 app.use((req, res, next) => {
   console.log(`Request: ${req.method} ${req.path}`);
-  const origin = req.headers.origin;
-  if (origin && (allowedOrigins.includes('*') || allowedOrigins.includes(origin))) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  }
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   // Handle preflight
   if (req.method === 'OPTIONS') {
