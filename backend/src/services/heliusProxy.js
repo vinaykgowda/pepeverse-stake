@@ -207,5 +207,6 @@ class HeliusProxyService {
   }
 }
 
-// Export singleton instance
-module.exports = new HeliusProxyService();
+// Export the class, not a singleton instance
+// This prevents instantiation at import time in serverless environments
+module.exports = HeliusProxyService;

@@ -1,6 +1,9 @@
 // backend/src/services/ownershipVerification.js
 
-const heliusProxy = require('./heliusProxy');
+const HeliusProxyService = require('./heliusProxy');
+
+// Create singleton instance
+const heliusProxy = new HeliusProxyService();
 
 /**
  * NFT Ownership Verification Service

@@ -1,6 +1,9 @@
 const { getPool } = require('../db');
-const heliusProxy = require('./heliusProxy');
+const HeliusProxyService = require('./heliusProxy');
 const auditLog = require('./auditLog');
+
+// Create singleton instance
+const heliusProxy = new HeliusProxyService();
 
 const pool = getPool();
 

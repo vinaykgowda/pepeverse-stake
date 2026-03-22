@@ -2,9 +2,12 @@
 
 const express = require('express');
 const router = express.Router();
-const heliusProxy = require('../src/services/heliusProxy');
+const HeliusProxyService = require('../src/services/heliusProxy');
 const { validateWalletAddress } = require('../middleware/validation');
 const logger = require('../src/utils/logger');
+
+// Create singleton instance
+const heliusProxy = new HeliusProxyService();
 
 /**
  * Helius Proxy API Routes
