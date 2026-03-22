@@ -137,7 +137,9 @@ router.post('/admin/login', authLimiter, async (req, res) => {
     const admin = result.rows[0];
 
     // Verify password using bcrypt
+    console.log('Password check - Input:', password, 'Hash:', admin.password);
     const passwordMatch = await bcrypt.compare(password, admin.password);
+    console.log('Match result:', passwordMatch);
 
     if (!passwordMatch) {
       return res.status(401).json({
