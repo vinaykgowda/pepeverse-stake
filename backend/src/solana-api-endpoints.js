@@ -950,7 +950,22 @@ router.put('/admin/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
 
     // Verify current password if changing password
     if (password && currentPassword) {
-      const passwordMatch = await bcrypt.compare(currentPassword, adminsResult.rows[0].password);
+      const storedPassword = adminsResult.rows[0].password;
+      let passwordMatch = false;
+
+      const isBcryptHash = storedPassword && (storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2a$'));
+      if (isBcryptHash) {
+        passwordMatch = await bcrypt.compare(currentPassword, storedPassword);
+      } else {
+        // Plain text fallback for legacy passwords
+        passwordMatch = currentPassword === storedPassword;
+        if (passwordMatch) {
+          // Migrate: hash and update the plain text password now
+          console.log(`[ADMIN] Migrating plain text password to bcrypt hash for admin ${id}`);
+          const migratedHash = await bcrypt.hash(storedPassword, 10);
+          await pool.query('UPDATE admins SET password = $1 WHERE id = $2', [migratedHash, id]);
+        }
+      }
 
       if (!passwordMatch) {
         return res.status(401).json({
