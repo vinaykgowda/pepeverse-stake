@@ -30,26 +30,36 @@ class WalletRateLimiter {
    * @param {number} options.windowMs - Time window in milliseconds (default: 60000 = 1 minute)
    * @param {number} options.maxRequests - Maximum requests per window (default: 10)
    * @param {string} options.keyPrefix - Prefix for storage key (default: 'ratelimit')
+   * @param {boolean} options.useWallet - Whether to require wallet address (default: true)
    * @returns {Function} Express middleware function
    */
   createLimiter(options) {
     const { 
       windowMs = 60000, // 1 minute
       maxRequests = 10,
-      keyPrefix = 'ratelimit'
+      keyPrefix = 'ratelimit',
+      useWallet = true
     } = options;
     
     return async (req, res, next) => {
-      // Extract wallet address from JWT or request
-      const walletAddress = req.user?.walletAddress || req.body?.walletAddress;
+      let identifier;
       
-      if (!walletAddress) {
-        return res.status(400).json({ 
-          error: 'Wallet address required' 
-        });
+      if (useWallet) {
+        // Extract wallet address from JWT or request
+        const walletAddress = req.user?.walletAddress || req.body?.walletAddress;
+        
+        if (!walletAddress) {
+          return res.status(400).json({ 
+            error: 'Wallet address required' 
+          });
+        }
+        identifier = walletAddress;
+      } else {
+        // Use username or IP address for non-wallet endpoints
+        identifier = req.body?.username || req.ip || 'unknown';
       }
       
-      const key = `${keyPrefix}:${walletAddress}`;
+      const key = `${keyPrefix}:${identifier}`;
       const now = Date.now();
       const windowStart = now - windowMs;
       
@@ -141,7 +151,8 @@ module.exports = {
   authLimiter: rateLimiter.createLimiter({
     windowMs: 60000,
     maxRequests: 10,
-    keyPrefix: 'auth'
+    keyPrefix: 'auth',
+    useWallet: false // Admin login uses username, not wallet
   }),
   
   // Export the class and instance for testing
