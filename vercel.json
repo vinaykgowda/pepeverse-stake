@@ -3,7 +3,7 @@
   "buildCommand": "cd frontend && npm install && npm run build && cd ../backend && npm install",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "backend/api/index.js": {
+    "api/index.js": {
       "memory": 1024,
       "maxDuration": 10
     }
@@ -11,7 +11,7 @@
   "rewrites": [
     {
       "source": "/api/v1/:path*",
-      "destination": "/backend/api/index.js"
+      "destination": "/api/index.js"
     }
   ],
   "routes": [
