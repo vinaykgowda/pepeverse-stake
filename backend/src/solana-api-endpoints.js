@@ -622,8 +622,11 @@ router.delete('/admin/collections/:id', verifyJWT, verifyAdmin, async (req, res)
 
 // GET /api/v1/admin/dashboard
 router.get('/admin/dashboard', async (req, res) => {
+  console.log('Dashboard route hit');
   try {
+    console.log('Fetching dashboard data...');
     const collectionsResult = await pool.query(`SELECT COUNT(*) as count FROM collections`);
+    console.log('Collections:', collectionsResult.rows);
     const stakedResult = await pool.query(`SELECT COUNT(*) as count FROM staked_nfts`);
 
     const feesResult = await pool.query(`
@@ -638,6 +641,7 @@ router.get('/admin/dashboard', async (req, res) => {
       WHERE transaction_type = 'CLAIM' AND status = 'CONFIRMED'
     `);
 
+    console.log('Dashboard data fetched successfully');
     return res.json({
       success: true,
       data: {
@@ -648,6 +652,7 @@ router.get('/admin/dashboard', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Dashboard error:', error);
     logger.error('Error in /admin/dashboard', { error });
     return res.status(500).json({
       success: false,
