@@ -1,6 +1,9 @@
 -- NeonDB Setup Script for Pepeverse Staking Platform
 -- Run this script in your NeonDB SQL Editor or via psql
 
+-- IMPORTANT: Update your DATABASE_URL in Vercel to use sslmode=verify-full:
+-- postgresql://user:pass@host.neon.tech/db?sslmode=verify-full
+
 -- Drop existing tables if they exist (in correct order due to foreign keys)
 DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS trait_rewards CASCADE;
