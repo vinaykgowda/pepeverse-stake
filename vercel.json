@@ -1,26 +1,30 @@
 {
   "version": 2,
-  "buildCommand": "npm install --prefix frontend && npm install --prefix backend && npm run build --prefix frontend",
-  "outputDirectory": "frontend/dist",
-  "functions": {
-    "api/index.js": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  },
-  "rewrites": [
+  "builds": [
     {
-      "source": "/api/v1/:path*",
-      "destination": "/api/index.js"
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
+    {
+      "src": "/api/v1/(.*)",
+      "dest": "/api/index.js"
+    },
     {
       "handle": "filesystem"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/frontend/dist/index.html"
     }
-  ]
+  ],
+  "installCommand": "npm install --prefix frontend && npm install --prefix backend"
 }
