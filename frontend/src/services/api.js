@@ -33,26 +33,12 @@ api.interceptors.request.use(
 );
 
 // Add response interceptor to handle token expiration
-// Add response interceptor to handle token expiration
 api.interceptors.response.use(
   (response) => {
     return response;
   },
   (error) => {
-    if (error.response && error.response.status === 401) {
-      // Check which type of auth failed
-      if (error.config.url.includes('/admin')) {
-        // Admin token expired
-        localStorage.removeItem('adminToken');
-        localStorage.removeItem('adminUser');
-        window.location.href = '/admin/login?timeout=true';
-      } else {
-        // Wallet token expired
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/?timeout=true';
-      }
-    }
+    // Don't auto-redirect on 401 - let the component handle it
     return Promise.reject(error);
   }
 );
