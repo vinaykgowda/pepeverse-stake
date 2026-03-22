@@ -55,9 +55,9 @@ router.post('/verify', authLimiter, async (req, res) => {
     // 1. Verify nonce matches message
     // 2. Verify signature using nacl
     // 3. Delete nonce after use (single use)
-    const result = await authService.verifySignature(wallet, signature, message);
+    const verifyResult = await authService.verifySignature(wallet, signature, message);
 
-    if (!result.valid) {
+    if (!verifyResult.valid) {
       return res.status(401).json({
         success: false,
         message: 'Invalid signature'
@@ -65,12 +65,12 @@ router.post('/verify', authLimiter, async (req, res) => {
     }
 
     // Check if wallet is admin
-    const result = await pool.query(
+    const adminResult = await pool.query(
       'SELECT id FROM admins WHERE wallet_address = $1',
       [wallet]
     );
 
-    const isAdmin = result.rows.length > 0;
+    const isAdmin = adminResult.rows.length > 0;
 
     // Generate JWT token
     const jwtSecret = process.env.JWT_SECRET;
