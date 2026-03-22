@@ -136,18 +136,10 @@ router.post('/admin/login', authLimiter, async (req, res) => {
 
     const admin = result.rows[0];
 
-    // TEMPORARY: Skip password check to debug
-    console.log('Comparing passwords...');
-    console.log('Input password:', JSON.stringify(password));
-    console.log('Input password length:', password.length);
-    console.log('Stored hash:', admin.password);
-    
-    // Temporary bypass for debugging
-    const passwordMatch = password === 'admin123';
-    console.log('Password match result:', passwordMatch);
+    // Verify password using bcrypt
+    const passwordMatch = await bcrypt.compare(password, admin.password);
 
     if (!passwordMatch) {
-      console.log('Password mismatch for user:', username);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'

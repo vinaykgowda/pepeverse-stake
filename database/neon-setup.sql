@@ -157,10 +157,10 @@ INSERT INTO settings (key_name, value, description) VALUES
 ('minimum_claim_amount', '1', 'Minimum amount required to claim rewards');
 
 -- Insert initial super admin
--- Default password: 'admin123' (hashed with bcrypt)
+-- Default password: 'admin123' (hashed with bcrypt rounds=12)
 -- IMPORTANT: Change this password immediately after first login!
 INSERT INTO admins (username, password, email, is_super_admin) VALUES
-('admin', '$2b$10$NYPFM7NzbFtrFR.8J0xG0.tpOzs.A7j/OKIeX6rkKfpJGV4KzFAou', 'admin@pepeverse.com', true);
+('admin', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NU7BlNBpoNOi', 'admin@pepeverse.com', true);
 
 -- Verify tables were created
 SELECT table_name FROM information_schema.tables 
