@@ -626,19 +626,17 @@ router.delete('/admin/collections/:id', verifyJWT, verifyAdmin, async (req, res)
 // GET /api/v1/admin/dashboard
 router.get('/admin/dashboard', async (req, res) => {
   try {
-    const connection = pool.promise();
+    const collectionsResult = await pool.query(`SELECT COUNT(*) as count FROM collections`);
+    const stakedResult = await pool.query(`SELECT COUNT(*) as count FROM staked_nfts`);
 
-    const [collections] = await connection.query(`SELECT COUNT(*) as count FROM collections`);
-    const [staked] = await connection.query(`SELECT COUNT(*) as count FROM staked_nfts`);
-
-    const [fees] = await connection.query(`
-      SELECT IFNULL(SUM(amount), 0) as total
+    const feesResult = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions
       WHERE transaction_type IN ('STAKE', 'STAKE_FEE', 'UNSTAKE', 'UNSTAKE_FEE') AND status = 'CONFIRMED'
     `);
 
-    const [rewards] = await connection.query(`
-      SELECT IFNULL(SUM(amount), 0) as total
+    const rewardsResult = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions
       WHERE transaction_type = 'CLAIM' AND status = 'CONFIRMED'
     `);
@@ -646,10 +644,10 @@ router.get('/admin/dashboard', async (req, res) => {
     return res.json({
       success: true,
       data: {
-        collections: collections[0].count,
-        totalStaked: staked[0].count,
-        stakeFeesCollected: parseFloat(fees[0].total),
-        rewardsDistributed: parseFloat(rewards[0].total)
+        collections: parseInt(collectionsResult.rows[0].count),
+        totalStaked: parseInt(stakedResult.rows[0].count),
+        stakeFeesCollected: parseFloat(feesResult.rows[0].total),
+        rewardsDistributed: parseFloat(rewardsResult.rows[0].total)
       }
     });
   } catch (error) {
