@@ -634,8 +634,8 @@ router.put('/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
       });
     }
 
-    // Verify current password if changing password
-    if (password && currentPassword) {
+    // Verify current password if changing password (check for non-empty strings)
+    if (password && password.trim() && currentPassword && currentPassword.trim()) {
       const storedPassword = adminsResult.rows[0].password;
       let passwordMatch;
       
