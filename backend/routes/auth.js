@@ -136,10 +136,17 @@ router.post('/admin/login', authLimiter, async (req, res) => {
 
     const admin = result.rows[0];
 
-    // Verify password using bcrypt
-    console.log('Password check - Input:', password, 'Hash:', admin.password);
-    const passwordMatch = await bcrypt.compare(password, admin.password);
-    console.log('Match result:', passwordMatch);
+    // Check if password is plain text (temporary for initial setup)
+    let passwordMatch;
+    if (admin.password.startsWith('$2')) {
+      // It's a bcrypt hash
+      passwordMatch = await bcrypt.compare(password, admin.password);
+    } else {
+      // Plain text comparison (temporary)
+      passwordMatch = password === admin.password;
+    }
+    
+    console.log('Password check - Input:', password, 'Hash:', admin.password, 'Match:', passwordMatch);
 
     if (!passwordMatch) {
       return res.status(401).json({
