@@ -611,6 +611,8 @@ router.get('/managers', verifyJWT, verifyAdmin, async (req, res) => {
 router.put('/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
   const { id } = req.params;
   const { username, email, password, currentPassword } = req.body;
+  
+  console.log('Profile update request:', { id, username, email, hasPassword: !!password, hasCurrentPassword: !!currentPassword });
 
   // Ensure user is updating their own profile or is a super admin
   if (req.user.adminId != id && !req.user.isSuperAdmin) {
@@ -633,6 +635,8 @@ router.put('/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
         message: 'Admin not found'
       });
     }
+    
+    console.log('Admin found, stored password:', adminsResult.rows[0].password);
 
     // Verify current password if changing password (check for non-empty strings)
     if (password && password.trim() && currentPassword && currentPassword.trim()) {
