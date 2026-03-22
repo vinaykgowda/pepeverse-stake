@@ -65,13 +65,12 @@ router.post('/verify', authLimiter, async (req, res) => {
     }
 
     // Check if wallet is admin
-    const connection = pool.promise();
-    const [admins] = await connection.query(
-      'SELECT id FROM admins WHERE wallet_address = ?',
+    const result = await pool.query(
+      'SELECT id FROM admins WHERE wallet_address = $1',
       [wallet]
     );
 
-    const isAdmin = admins.length > 0;
+    const isAdmin = result.rows.length > 0;
 
     // Generate JWT token
     const jwtSecret = process.env.JWT_SECRET;
@@ -122,22 +121,20 @@ router.post('/admin/login', authLimiter, async (req, res) => {
       });
     }
 
-    const connection = pool.promise();
-
-    // Get admin from database
-    const [admins] = await connection.query(
-      'SELECT * FROM admins WHERE username = ?',
+    // PostgreSQL query (not MySQL)
+    const result = await pool.query(
+      'SELECT * FROM admins WHERE username = $1',
       [username]
     );
 
-    if (admins.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
 
-    const admin = admins[0];
+    const admin = result.rows[0];
 
     // Verify password using bcrypt
     const passwordMatch = await bcrypt.compare(password, admin.password);
@@ -150,8 +147,8 @@ router.post('/admin/login', authLimiter, async (req, res) => {
     }
 
     // Update last login
-    await connection.query(
-      'UPDATE admins SET last_login = NOW() WHERE id = ?',
+    await pool.query(
+      'UPDATE admins SET last_login = NOW() WHERE id = $1',
       [admin.id]
     );
 
