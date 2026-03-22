@@ -1,0 +1,22 @@
+{
+  "name": "solana-nft-staking-migrations",
+  "version": "1.0.0",
+  "description": "Database migrations for Solana NFT Staking Platform",
+  "main": "migrate.js",
+  "scripts": {
+    "status": "node migrate.js status",
+    "up": "node migrate.js up",
+    "down": "node migrate.js down",
+    "test": "node test-migration.js"
+  },
+  "keywords": [
+    "database",
+    "migrations"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "mysql2": "^3.6.5",
+    "dotenv": "^16.3.1"
+  }
+}
