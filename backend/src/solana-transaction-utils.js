@@ -12,9 +12,9 @@ dotenv.config();
 
 // Initialize Solana connection
 const getConnection = () => {
-  const endpoint = process.env.SOLANA_RPC_URL;
+  const endpoint = process.env.SOLANA_RPC_URL || process.env.MAINNET_RPC_PRIMARY || 'https://api.mainnet-beta.solana.com';
   if (!endpoint) {
-    throw new Error('SOLANA_RPC_URL environment variable is required');
+    console.warn('SOLANA_RPC_URL environment variable is not set, using default mainnet endpoint');
   }
   console.log('🌐 Using Solana RPC:', endpoint);
   return new web3.Connection(endpoint, 'confirmed');
