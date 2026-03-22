@@ -1,0 +1,344 @@
+// backend/src/solana-nft-staking.js
+
+const web3 = require('@solana/web3.js');
+const { Metadata } = require('@metaplex-foundation/mpl-token-metadata');
+const { PublicKey } = web3;
+const { getConnection, sendTransaction, createSolTransferInstruction, getKeypairFromPrivateKey } = require('./solana-transaction-utils');
+const pool = require('./db');
+
+// Fetch NFT metadata from on-chain
+async function getNFTMetadata(mintAddress) {
+  try {
+    const connection = getConnection();
+    const mintPubkey = new PublicKey(mintAddress);
+
+    // Get PDA for metadata
+    const [metadataPDA] = await PublicKey.findProgramAddress(
+      [Buffer.from('metadata'), Metadata.PROGRAM_ID.toBytes(), mintPubkey.toBytes()],
+      Metadata.PROGRAM_ID
+    );
+
+    // Fetch metadata
+    const { data } = await connection.getAccountInfo(metadataPDA);
+    const metadata = Metadata.deserialize(data);
+
+    return metadata;
+  } catch (error) {
+    console.error(`Error fetching metadata for ${mintAddress}:`, error);
+    return null;
+  }
+}
+
+// Check if NFT belongs to a collection based on hashlist
+async function verifyNFTInCollection(mintAddress, collectionId) {
+  try {
+    const connection = pool.promise();
+    const [collections] = await connection.query(
+      'SELECT hashlist FROM collections WHERE id = ?',
+      [collectionId]
+    );
+
+    if (collections.length === 0) {
+      return false;
+    }
+
+    const hashlist = JSON.parse(collections[0].hashlist);
+    return hashlist.includes(mintAddress);
+  } catch (error) {
+    console.error('Error verifying NFT in collection:', error);
+    return false;
+  }
+}
+
+// Check if NFT is owned by wallet
+async function verifyNFTOwnership(mintAddress, walletAddress) {
+  try {
+    const connection = getConnection();
+    const mintPubkey = new PublicKey(mintAddress);
+
+    // Find the token account that holds this NFT
+    const tokenAccounts = await connection.getTokenLargestAccounts(mintPubkey);
+
+    if (tokenAccounts.value.length === 0) {
+      return false;
+    }
+
+    // Get the largest account (should be the only one with amount 1 for NFTs)
+    const largestAccount = tokenAccounts.value[0].address;
+
+    // Get the owner of this token account
+    const accountInfo = await connection.getAccountInfo(largestAccount);
+
+    if (!accountInfo) {
+      return false;
+    }
+
+    // Parse token account data to get owner
+    const owner = accountInfo.owner.toString();
+
+    return owner === walletAddress;
+  } catch (error) {
+    console.error(`Error verifying ownership for ${mintAddress}:`, error);
+    return false;
+  }
+}
+
+// Stake NFT
+async function stakeNFTs(walletAddress, nfts, collectionId) {
+  const connection = pool.promise();
+  const solanaConnection = getConnection();
+
+  // Start transaction
+  await connection.beginTransaction();
+
+  try {
+    // Get stake fee
+    const [collections] = await connection.query(
+      'SELECT stake_fee FROM collections WHERE id = ?',
+      [collectionId]
+    );
+
+    if (collections.length === 0) {
+      throw new Error('Collection not found');
+    }
+
+    const stakeFee = collections[0].stake_fee;
+    const totalFee = stakeFee * nfts.length;
+
+    // Get settings
+    const [settings] = await connection.query(
+      'SELECT value FROM settings WHERE key_name = ?',
+      ['rewards_wallet']
+    );
+
+    const [encryptedKey] = await connection.query(
+      'SELECT value FROM settings WHERE key_name = ?',
+      ['rewards_wallet_encrypted_key']
+    );
+
+    if (settings.length === 0 || encryptedKey.length === 0) {
+      throw new Error('Rewards wallet not configured');
+    }
+
+    const rewardsWallet = settings[0].value;
+
+    // Create transaction for fee payment
+    if (totalFee > 0) {
+      // Record transaction
+      const [result] = await connection.query(
+        'INSERT INTO transactions (wallet_address, transaction_type, amount, status) VALUES (?, ?, ?, ?)',
+        [walletAddress, 'FEE', totalFee, 'PENDING']
+      );
+
+      const transactionId = result.insertId;
+
+      // Here in a real implementation, you would create a Solana transaction for the user to sign
+      // This is a simplified version assuming the fee has been paid
+
+      // Update transaction status
+      await connection.query(
+        'UPDATE transactions SET status = ? WHERE id = ?',
+        ['CONFIRMED', transactionId]
+      );
+    }
+
+    // Record staked NFTs
+    for (const nft of nfts) {
+      // Verify NFT belongs to collection
+      const isInCollection = await verifyNFTInCollection(nft.mintAddress, collectionId);
+
+      if (!isInCollection) {
+        throw new Error(`NFT ${nft.mintAddress} does not belong to the specified collection`);
+      }
+
+      // Verify ownership
+      const isOwned = await verifyNFTOwnership(nft.mintAddress, walletAddress);
+
+      if (!isOwned) {
+        throw new Error(`NFT ${nft.mintAddress} is not owned by ${walletAddress}`);
+      }
+
+      // Get NFT metadata for traits
+      const metadata = await getNFTMetadata(nft.mintAddress);
+      const traits = metadata?.data?.attributes || [];
+
+      // Insert staked NFT
+      await connection.query(
+        'INSERT INTO staked_nfts (mint_address, collection_id, owner_wallet, traits) VALUES (?, ?, ?, ?)',
+        [nft.mintAddress, collectionId, walletAddress, JSON.stringify(traits)]
+      );
+    }
+
+    // Commit transaction
+    await connection.commit();
+
+    return {
+      success: true,
+      message: `Successfully staked ${nfts.length} NFTs`,
+      totalFee
+    };
+  } catch (error) {
+    // Rollback transaction
+    await connection.rollback();
+    console.error('Error staking NFTs:', error);
+
+    return {
+      success: false,
+      message: error.message
+    };
+  }
+}
+
+// Unstake NFT
+async function unstakeNFTs(walletAddress, nftIds) {
+  const connection = pool.promise();
+
+  // Start transaction
+  await connection.beginTransaction();
+
+  try {
+    // Get NFT details
+    const placeholders = nftIds.map(() => '?').join(',');
+    const [nfts] = await connection.query(
+      `SELECT s.id, s.mint_address, s.collection_id, c.unstake_fee
+       FROM staked_nfts s
+       JOIN collections c ON s.collection_id = c.id
+       WHERE s.id IN (${placeholders}) AND s.owner_wallet = ?`,
+      [...nftIds, walletAddress]
+    );
+
+    if (nfts.length !== nftIds.length) {
+      throw new Error('Some NFTs not found or not owned by wallet');
+    }
+
+    // Calculate total fee
+    const totalFee = nfts.reduce((sum, nft) => sum + parseFloat(nft.unstake_fee), 0);
+
+    // Get settings
+    const [settings] = await connection.query(
+      'SELECT value FROM settings WHERE key_name = ?',
+      ['rewards_wallet']
+    );
+
+    const [encryptedKey] = await connection.query(
+      'SELECT value FROM settings WHERE key_name = ?',
+      ['rewards_wallet_encrypted_key']
+    );
+
+    if (settings.length === 0 || encryptedKey.length === 0) {
+      throw new Error('Rewards wallet not configured');
+    }
+
+    const rewardsWallet = settings[0].value;
+
+    // Create transaction for fee payment
+    if (totalFee > 0) {
+      // Record transaction
+      const [result] = await connection.query(
+        'INSERT INTO transactions (wallet_address, transaction_type, amount, status) VALUES (?, ?, ?, ?)',
+        [walletAddress, 'FEE', totalFee, 'PENDING']
+      );
+
+      const transactionId = result.insertId;
+
+      // Here in a real implementation, you would create a Solana transaction for the user to sign
+      // This is a simplified version assuming the fee has been paid
+
+      // Update transaction status
+      await connection.query(
+        'UPDATE transactions SET status = ? WHERE id = ?',
+        ['CONFIRMED', transactionId]
+      );
+    }
+
+    // Remove staked NFTs
+    await connection.query(
+      `DELETE FROM staked_nfts WHERE id IN (${placeholders})`,
+      nftIds
+    );
+
+    // Commit transaction
+    await connection.commit();
+
+    return {
+      success: true,
+      message: `Successfully unstaked ${nfts.length} NFTs`,
+      totalFee
+    };
+  } catch (error) {
+    // Rollback transaction
+    await connection.rollback();
+    console.error('Error unstaking NFTs:', error);
+
+    return {
+      success: false,
+      message: error.message
+    };
+  }
+}
+
+// Get user's staked NFTs
+async function getStakedNFTs(walletAddress) {
+  try {
+    const connection = pool.promise();
+
+    const [nfts] = await connection.query(
+      `SELECT s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.traits,
+              c.name as collection_name
+       FROM staked_nfts s
+       JOIN collections c ON s.collection_id = c.id
+       WHERE s.owner_wallet = ?`,
+      [walletAddress]
+    );
+
+    return {
+      success: true,
+      data: nfts
+    };
+  } catch (error) {
+    console.error('Error getting staked NFTs:', error);
+
+    return {
+      success: false,
+      message: error.message
+    };
+  }
+}
+
+// Get staking statistics for wallet
+async function getStakingStats(walletAddress) {
+  try {
+    const connection = pool.promise();
+
+    // Get staked NFT count by collection
+    const [nftStats] = await connection.query(
+      `SELECT c.id, c.name, COUNT(s.id) as staked_count
+       FROM collections c
+       LEFT JOIN staked_nfts s ON c.id = s.collection_id AND s.owner_wallet = ?
+       GROUP BY c.id, c.name`,
+      [walletAddress]
+    );
+
+    return {
+      success: true,
+      data: nftStats
+    };
+  } catch (error) {
+    console.error('Error getting staking stats:', error);
+
+    return {
+      success: false,
+      message: error.message
+    };
+  }
+}
+
+module.exports = {
+  stakeNFTs,
+  unstakeNFTs,
+  getStakedNFTs,
+  getStakingStats,
+  verifyNFTInCollection,
+  verifyNFTOwnership,
+  getNFTMetadata
+};

@@ -40,22 +40,11 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('adminUser');
     setUser(null);
 
-    if (isTimeout) {
-      // Show a timeout message
-      if (user?.isAdmin) {
-        // Admin timeout - go to admin login
-        window.location.href = '/admin/login?timeout=true';
-      } else {
-        // Regular user timeout - go to main staking page
-        window.location.href = '/?timeout=true';
-      }
+    // Regular logout - no timeout redirect
+    if (user?.isAdmin) {
+      window.location.href = '/admin/login';
     } else {
-      // Regular logout
-      if (user?.isAdmin) {
-        window.location.href = '/admin/login';
-      } else {
-        window.location.href = '/';
-      }
+      window.location.href = '/';
     }
   }, [user?.isAdmin]); // Add dependency
 
