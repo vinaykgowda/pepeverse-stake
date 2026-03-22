@@ -19,12 +19,8 @@
       "dest": "/api/index.js"
     },
     {
-      "handle": "filesystem"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/frontend/dist/index.html"
+      "dest": "/frontend/$1"
     }
-  ],
-  "installCommand": "npm install --prefix frontend && npm install --prefix backend"
+  ]
 }
