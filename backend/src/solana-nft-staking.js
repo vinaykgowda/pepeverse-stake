@@ -135,7 +135,7 @@ async function verifyNFTOwnership(mintAddress, walletAddress) {
 // Stake NFT
 // Stake NFTs with fee collection
 async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = null) {
-  const connection = await pool.getConnection();
+  const connection = await pool.getClient();
 
   try {
     await connection.query('BEGIN');
@@ -318,7 +318,7 @@ async function verifyStakingPayment(paymentSignature, fromWallet, toWallet, expe
 
 async function unstakeNFTs(walletAddress, nftIds) {
   // Get a connection from the pool
-  const connection = await pool.getConnection();
+  const connection = await pool.getClient();
 
   try {
     // Start transaction

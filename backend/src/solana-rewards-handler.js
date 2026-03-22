@@ -180,7 +180,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
   try {
     console.log(`🎯 [CLAIM] Starting claim with payment verification for: ${walletAddress}`);
 
-    dbConnection = await pool.getConnection();
+    dbConnection = await pool.getClient();
     
     // Use database transaction with row-level locking to prevent race conditions
     // This ensures concurrent claim requests are processed serially (Requirements 13.2, 13.5)
@@ -211,7 +211,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     }
 
     if (stakedNFTs.length === 0) {
-      await dbConnection.rollback();
+      await dbConnection.query('ROLLBACK');
       return {
         success: false,
         message: 'No staked NFTs found'
@@ -222,14 +222,14 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     const rewardsResult = await calculateRewards(walletAddress);
 
     if (!rewardsResult.success) {
-      await dbConnection.rollback();
+      await dbConnection.query('ROLLBACK');
       throw new Error(rewardsResult.message);
     }
 
     const rewards = rewardsResult.data;
 
     if (rewards.length === 0) {
-      await dbConnection.rollback();
+      await dbConnection.query('ROLLBACK');
       return {
         success: false,
         message: 'No rewards available to claim'
@@ -380,7 +380,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
     } catch (connectionError) {
       console.error('❌ [CLAIM] Solana setup failed:', connectionError);
-      await dbConnection.rollback();
+      await dbConnection.query('ROLLBACK');
       throw new Error(`Solana connection failed: ${connectionError.message}`);
     }
 

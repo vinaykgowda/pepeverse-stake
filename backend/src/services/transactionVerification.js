@@ -15,7 +15,8 @@ class TransactionVerificationService {
     this.rpcEndpoint = process.env.MAINNET_RPC_PRIMARY || process.env.SOLANA_RPC_URL;
     
     if (!this.rpcEndpoint) {
-      throw new Error('RPC endpoint not configured');
+      console.warn('TX-VERIFY: RPC endpoint not configured - transaction verification will fail until MAINNET_RPC_PRIMARY or SOLANA_RPC_URL is set');
+      this.disabled = true;
     }
     
     // Requirement 14.1: 100,000 lamport tolerance (0.0001 SOL)
@@ -24,7 +25,9 @@ class TransactionVerificationService {
     // Requirement 14.5: 15-second minimum timeout
     this.CONFIRMATION_TIMEOUT_MS = 15000;
     
-    logger.info('TX-VERIFY Service initialized', { rpcEndpoint: this.rpcEndpoint });
+    if (!this.disabled) {
+      logger.info('TX-VERIFY Service initialized', { rpcEndpoint: this.rpcEndpoint });
+    }
   }
   
   /**
@@ -32,6 +35,9 @@ class TransactionVerificationService {
    * @returns {Connection}
    */
   getConnection() {
+    if (this.disabled) {
+      throw new Error('TX-VERIFY: RPC endpoint not configured. Set MAINNET_RPC_PRIMARY or SOLANA_RPC_URL.');
+    }
     return new Connection(this.rpcEndpoint, 'confirmed');
   }
   

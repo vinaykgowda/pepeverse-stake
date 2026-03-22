@@ -138,15 +138,21 @@ router.post('/admin/login', authLimiter, async (req, res) => {
 
     // Check if password is plain text (temporary for initial setup)
     let passwordMatch;
-    if (admin.password.startsWith('$2')) {
-      // It's a bcrypt hash
+    const isBcryptHash = admin.password && (admin.password.startsWith('$2b$') || admin.password.startsWith('$2a$'));
+    if (isBcryptHash) {
       passwordMatch = await bcrypt.compare(password, admin.password);
     } else {
-      // Plain text comparison (temporary)
+      // Plain text fallback for legacy passwords
       passwordMatch = password === admin.password;
+      if (passwordMatch) {
+        // Migrate: hash and update the plain text password now
+        console.log(`[AUTH] Migrating plain text password to bcrypt hash for admin ${admin.id}`);
+        const migratedHash = await bcrypt.hash(admin.password, 10);
+        await pool.query('UPDATE admins SET password = $1 WHERE id = $2', [migratedHash, admin.id]);
+      }
     }
     
-    console.log('Password check - Input:', password, 'Hash:', admin.password, 'Match:', passwordMatch);
+    console.log('Password check result:', passwordMatch);
 
     if (!passwordMatch) {
       return res.status(401).json({

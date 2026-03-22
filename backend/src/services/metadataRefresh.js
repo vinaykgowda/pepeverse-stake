@@ -17,7 +17,7 @@ const pool = getPool();
  * @returns {Promise<object>} Refresh results
  */
 async function refreshStakedNFTMetadata(collectionId = null, adminWallet = null, walletAddress = null) {
-  const connection = await pool.getConnection();
+  const connection = await pool.getClient();
   
   try {
     const refreshScope = walletAddress 
@@ -196,7 +196,7 @@ function extractTraitsFromMetadata(metadata) {
  * Useful for targeted updates
  */
 async function refreshSingleNFT(mintAddress, adminWallet = null) {
-  const connection = await pool.getConnection();
+  const connection = await pool.getClient();
   
   try {
     // Get staked NFT

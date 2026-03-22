@@ -636,7 +636,24 @@ router.put('/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
 
     // Verify current password if changing password
     if (password && currentPassword) {
-      const passwordMatch = await bcrypt.compare(currentPassword, adminsResult.rows[0].password);
+      const storedPassword = adminsResult.rows[0].password;
+      let passwordMatch = false;
+
+      // Check if stored password is a bcrypt hash (starts with $2b$ or $2a$)
+      const isBcryptHash = storedPassword && (storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2a$'));
+
+      if (isBcryptHash) {
+        passwordMatch = await bcrypt.compare(currentPassword, storedPassword);
+      } else {
+        // Fallback: plain text comparison (legacy passwords stored before hashing was applied)
+        passwordMatch = currentPassword === storedPassword;
+        if (passwordMatch) {
+          // Migrate: hash and update the plain text password now
+          console.log(`[ADMIN] Migrating plain text password to bcrypt hash for admin ${id}`);
+          const migratedHash = await bcrypt.hash(storedPassword, 10);
+          await pool.query('UPDATE admins SET password = $1 WHERE id = $2', [migratedHash, id]);
+        }
+      }
 
       if (!passwordMatch) {
         return res.status(401).json({
@@ -874,8 +891,6 @@ router.put('/settings', verifyJWT, verifyAdmin, async (req, res) => {
     });
   }
 });
-
-module.exports = router;
 
 // POST /api/v1/admin/metadata/refresh
 // Refresh metadata for all staked NFTs (or specific collection)

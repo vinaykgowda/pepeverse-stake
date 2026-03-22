@@ -39,5 +39,6 @@ const verifyJWT = (req, res, next) => {
 };
 
 module.exports = {
-  verifyJWT
+  verifyJWT,
+  verifyAdmin: require('./admin').verifyAdmin
 };

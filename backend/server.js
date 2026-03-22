@@ -11,17 +11,13 @@ const apiRoutes = require('./src/solana-api-endpoints');
 const authRoutes = require('./routes/auth');
 const heliusRoutes = require('./routes/helius');
 const healthRoutes = require('./routes/health');
+const adminRoutes = require('./routes/admin');
 const networkConfig = require('./src/config/network');
 const { validateOrExit, getConfigSummary } = require('./src/config/startup-validation');
 const { jsonParseErrorHandler } = require('./middleware/jsonErrorHandler');
 const { databaseErrorHandler } = require('./middleware/databaseErrorHandler');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const logger = require('./src/utils/logger');
-// Commenting out adminRoutes to resolve the error
-// const adminRoutes = require('./routes/admin');
-
-
-// Load environment variables
 dotenv.config();
 
 // Validate all required environment variables and secrets
@@ -95,7 +91,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
 }));
 
 // Request logger
@@ -116,9 +112,6 @@ const limiter = rateLimit({
 // Apply rate limiting to all routes
 app.use(limiter);
 
-// Parse JSON request body
-app.use(express.json());
-
 // Parse URL-encoded request body
 app.use(express.urlencoded({ extended: true }));
 
@@ -131,8 +124,7 @@ if (!apiBaseUrl) {
 
 app.use(`${apiBaseUrl}/auth`, authRoutes);
 app.use(`${apiBaseUrl}/helius`, heliusRoutes);
-// Commenting out adminRoutes to use solana-api-endpoints.js instead
-// app.use(`${apiBaseUrl}/admin`, adminRoutes);
+app.use(`${apiBaseUrl}/admin`, adminRoutes);
 app.use(apiBaseUrl, apiRoutes);
 
 // Health check endpoint - mounted at root level for monitoring
