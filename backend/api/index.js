@@ -47,6 +47,7 @@ app.use(cors({
 
 // Add explicit CORS headers for all responses
 app.use((req, res, next) => {
+  console.log(`Request: ${req.method} ${req.path}`);
   const origin = req.headers.origin;
   if (origin && (allowedOrigins.includes('*') || allowedOrigins.includes(origin))) {
     res.header('Access-Control-Allow-Origin', origin);
