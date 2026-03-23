@@ -20,6 +20,8 @@ const RewardsManager = () => {
     token_decimals: '9',
     daily_rate: '1'
   });
+  const [fetchingToken, setFetchingToken] = useState(false);
+  const [tokenFetchError, setTokenFetchError] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editId, setEditId] = useState(null);
 
@@ -83,19 +85,31 @@ const RewardsManager = () => {
   }, []);
 
   // Handle form input change
-  const handleInputChange = async (e) => {
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'token_address') setTokenFetchError(null);
+  };
 
-    const updatedForm = { ...formData, [name]: value };
-
-    // If user updated token address, fetch symbol/decimals
-    if (name === "token_address" && isValidWalletAddress(value)) {
-      const details = await fetchTokenDetailsFromHelius(value);
-      updatedForm.token_symbol = details.symbol;
-      updatedForm.token_decimals = details.decimals.toString();
+  // Fetch token details from Helius on button click
+  const handleFetchToken = async () => {
+    if (!isValidWalletAddress(formData.token_address)) {
+      setTokenFetchError('Enter a valid token address first');
+      return;
     }
-
-    setFormData(updatedForm);
+    setFetchingToken(true);
+    setTokenFetchError(null);
+    const details = await fetchTokenDetailsFromHelius(formData.token_address);
+    if (!details.symbol && details.decimals === '0') {
+      setTokenFetchError('Could not fetch token details');
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        token_symbol: details.symbol,
+        token_decimals: details.decimals.toString()
+      }));
+    }
+    setFetchingToken(false);
   };
 
 
@@ -337,14 +351,28 @@ const RewardsManager = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Token Address
                 </label>
-                <input
-                  type="text"
-                  name="token_address"
-                  value={formData.token_address}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                  required
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    name="token_address"
+                    value={formData.token_address}
+                    onChange={handleInputChange}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Enter token mint address"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={handleFetchToken}
+                    disabled={fetchingToken}
+                    className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {fetchingToken ? '...' : 'Fetch'}
+                  </button>
+                </div>
+                {tokenFetchError && (
+                  <p className="mt-1 text-xs text-red-500">{tokenFetchError}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
