@@ -223,19 +223,11 @@ const RewardsPanel = () => {
     }
   }, [claimQuote, createPaymentTransaction, claimFromContext, loadRewards]); // Memoize with dependencies
 
-  // Load rewards on mount
-  useEffect(() => {
-    loadRewards();
-    loadAirdrops();
-    const interval = setInterval(loadRewards, 10000);
-    return () => clearInterval(interval);
-  }, [loadRewards, loadAirdrops]);
-
   // Clear messages - memoized
   const clearMessages = useCallback(() => {
     setError(null);
     setSuccess(null);
-  }, []); // No dependencies
+  }, []);
 
   // Load eligible airdrops for the connected wallet
   const loadAirdrops = useCallback(async () => {
@@ -249,6 +241,14 @@ const RewardsPanel = () => {
       console.error('Failed to load airdrops:', err);
     }
   }, [wallet]);
+
+  // Load rewards on mount
+  useEffect(() => {
+    loadRewards();
+    loadAirdrops();
+    const interval = setInterval(loadRewards, 10000);
+    return () => clearInterval(interval);
+  }, [loadRewards, loadAirdrops]);
 
   // Format countdown from seconds remaining
   const formatCountdown = (seconds) => {
