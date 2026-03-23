@@ -5,6 +5,7 @@ import { useWallet } from '../../context/WalletContext';
 import { Connection, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { formatToken, formatSol } from '../../utils/format';
 import networkConfig from '../../config/network';
+import api from '../../services/api';
 
 const RewardsPanel = () => {
   const { loading, calculateRewards, wallet, claimRewards: claimFromContext, getClaimQuote: getQuoteFromWallet } = useWallet();
@@ -16,6 +17,14 @@ const RewardsPanel = () => {
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [transactionStatus, setTransactionStatus] = useState('');
   const [estimatedTime, setEstimatedTime] = useState(0);
+
+  // Airdrop state
+  const [airdrops, setAirdrops] = useState([]);
+  const [airdropError, setAirdropError] = useState(null);
+  const [airdropQuote, setAirdropQuote] = useState(null);
+  const [showAirdropModal, setShowAirdropModal] = useState(false);
+  const [airdropProcessing, setAirdropProcessing] = useState(false);
+  const [airdropSuccess, setAirdropSuccess] = useState(null);
 
   // Load rewards - memoized to prevent recreation
   const loadRewards = useCallback(async () => {
@@ -217,15 +226,102 @@ const RewardsPanel = () => {
   // Load rewards on mount
   useEffect(() => {
     loadRewards();
+    loadAirdrops();
     const interval = setInterval(loadRewards, 10000);
     return () => clearInterval(interval);
-  }, [loadRewards]); // Add loadRewards as dependency
+  }, [loadRewards, loadAirdrops]);
 
   // Clear messages - memoized
   const clearMessages = useCallback(() => {
     setError(null);
     setSuccess(null);
   }, []); // No dependencies
+
+  // Load eligible airdrops for the connected wallet
+  const loadAirdrops = useCallback(async () => {
+    if (!wallet?.adapter?.publicKey) return;
+    try {
+      const walletAddress = wallet.adapter.publicKey.toString();
+      const res = await api.user.getAirdrops(walletAddress);
+      setAirdrops(res.data.data || []);
+    } catch (err) {
+      // Non-critical — don't surface to user
+      console.error('Failed to load airdrops:', err);
+    }
+  }, [wallet]);
+
+  // Format countdown from seconds remaining
+  const formatCountdown = (seconds) => {
+    if (seconds <= 0) return 'Expired';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    if (days > 0) return `${days}d ${hours}h remaining`;
+    if (hours > 0) return `${hours}h ${mins}m remaining`;
+    return `${mins}m remaining`;
+  };
+
+  // Start airdrop claim: fetch quote and open modal
+  const handleAirdropClaim = useCallback(async (airdrop) => {
+    if (!wallet?.adapter?.publicKey) return;
+    setAirdropError(null);
+    setAirdropSuccess(null);
+    try {
+      const walletAddress = wallet.adapter.publicKey.toString();
+      const res = await api.user.getAirdropQuote({
+        wallet_address: walletAddress,
+        airdrop_config_id: airdrop.airdrop_config_id,
+      });
+      setAirdropQuote({ ...res.data, airdrop });
+      setShowAirdropModal(true);
+    } catch (err) {
+      setAirdropError(err.response?.data?.message || 'Failed to get airdrop quote');
+    }
+  }, [wallet]);
+
+  // Execute airdrop claim after confirmation
+  const executeAirdropClaim = useCallback(async () => {
+    if (!airdropQuote || !wallet?.adapter?.publicKey) return;
+    setAirdropProcessing(true);
+    setAirdropError(null);
+    try {
+      const walletAddress = wallet.adapter.publicKey.toString();
+      let paymentSignature = null;
+
+      if (airdropQuote.claim_fee > 0 && airdropQuote.fee_recipient) {
+        paymentSignature = await createPaymentTransaction(
+          airdropQuote.fee_recipient,
+          airdropQuote.claim_fee
+        );
+      }
+
+      const res = await api.user.claimAirdrop({
+        wallet_address: walletAddress,
+        airdrop_config_id: airdropQuote.airdrop.airdrop_config_id,
+        payment_signature: paymentSignature,
+      });
+
+      setAirdropSuccess({
+        signature: res.data.signature,
+        tokenSymbol: airdropQuote.airdrop.token_symbol,
+        tokenAmount: airdropQuote.token_amount,
+      });
+      setShowAirdropModal(false);
+      setAirdropQuote(null);
+      // Remove claimed airdrop from list
+      setAirdrops(prev =>
+        prev.filter(a => a.airdrop_config_id !== airdropQuote.airdrop.airdrop_config_id)
+      );
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 409) setAirdropError('This airdrop has already been claimed.');
+      else if (status === 410) setAirdropError('The claim window for this airdrop has expired.');
+      else if (status === 402) setAirdropError('Fee payment failed or insufficient balance.');
+      else setAirdropError(err.response?.data?.message || 'Failed to claim airdrop. Please try again.');
+    } finally {
+      setAirdropProcessing(false);
+    }
+  }, [airdropQuote, wallet, createPaymentTransaction]);
 
   // Memoize hasClaimableRewards calculation
   const hasClaimableRewards = React.useMemo(() => {
@@ -469,6 +565,125 @@ const RewardsPanel = () => {
         <p>Rewards update automatically every 10 seconds.</p>
         <p>Collection-specific claim fees apply when claiming rewards.</p>
       </div>
+
+      {/* Available Airdrops Section */}
+      <div className="mt-6 border-t border-gray-200 pt-6">
+        <h4 className="text-sm font-medium text-gray-700 mb-3">Available Airdrops</h4>
+
+        {airdropError && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-3 text-sm">
+            {airdropError}
+            <button onClick={() => setAirdropError(null)} className="ml-2 underline">Dismiss</button>
+          </div>
+        )}
+
+        {airdropSuccess && (
+          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-3 text-sm">
+            Successfully claimed {airdropSuccess.tokenAmount} {airdropSuccess.tokenSymbol}!{' '}
+            {airdropSuccess.signature && (
+              <a
+                href={networkConfig.getTransactionUrl(airdropSuccess.signature)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                View transaction
+              </a>
+            )}
+            <button onClick={() => setAirdropSuccess(null)} className="ml-2 underline">Dismiss</button>
+          </div>
+        )}
+
+        {airdrops.length === 0 ? (
+          <div className="bg-gray-50 p-4 rounded-lg text-center text-sm text-gray-500">
+            No airdrops available for your wallet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {airdrops.map((airdrop) => {
+              const expired = airdrop.time_remaining_seconds <= 0;
+              return (
+                <div
+                  key={airdrop.airdrop_config_id}
+                  className="flex justify-between items-center p-4 border border-gray-200 rounded-lg bg-gray-50"
+                >
+                  <div>
+                    <div className="font-medium text-gray-900 text-sm">
+                      {airdrop.collection_name} — {airdrop.token_symbol}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {parseFloat(airdrop.token_amount)} {airdrop.token_symbol}
+                    </div>
+                    <div className={`text-xs mt-0.5 ${expired ? 'text-red-500' : 'text-indigo-600'}`}>
+                      {formatCountdown(airdrop.time_remaining_seconds)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleAirdropClaim(airdrop)}
+                    disabled={expired || airdropProcessing}
+                    className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    {expired ? 'Expired' : 'Claim'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Airdrop Claim Modal */}
+      {showAirdropModal && airdropQuote && (
+        <div className="fixed inset-0 overflow-y-auto z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black bg-opacity-50"></div>
+          <div className="relative bg-white rounded-lg max-w-sm w-full mx-auto p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Confirm Airdrop Claim</h3>
+
+            {airdropProcessing ? (
+              <div className="flex flex-col items-center py-8">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
+                <p className="text-sm text-gray-600">Processing claim...</p>
+              </div>
+            ) : (
+              <div className="mb-4 space-y-3">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-green-700">You will receive:</span>
+                    <span className="font-medium text-green-800">
+                      {parseFloat(airdropQuote.token_amount)} {airdropQuote.airdrop.token_symbol}
+                    </span>
+                  </div>
+                </div>
+                {airdropQuote.claim_fee > 0 && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-yellow-700">Claim fee:</span>
+                      <span className="font-medium text-yellow-800">{formatSol(airdropQuote.claim_fee)} SOL</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => { setShowAirdropModal(false); setAirdropQuote(null); }}
+                disabled={airdropProcessing}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeAirdropClaim}
+                disabled={airdropProcessing}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 disabled:bg-indigo-300"
+              >
+                {airdropProcessing ? 'Processing...' : 'Confirm Claim'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

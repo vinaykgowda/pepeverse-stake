@@ -12,6 +12,7 @@ const authRoutes = require('./routes/auth');
 const heliusRoutes = require('./routes/helius');
 const healthRoutes = require('./routes/health');
 const adminRoutes = require('./routes/admin');
+const userRoutes = require('./routes/user');
 const networkConfig = require('./src/config/network');
 const { validateOrExit, getConfigSummary } = require('./src/config/startup-validation');
 const { jsonParseErrorHandler } = require('./middleware/jsonErrorHandler');
@@ -125,6 +126,7 @@ if (!apiBaseUrl) {
 app.use(`${apiBaseUrl}/auth`, authRoutes);
 app.use(`${apiBaseUrl}/helius`, heliusRoutes);
 app.use(`${apiBaseUrl}/admin`, adminRoutes);
+app.use(`${apiBaseUrl}/user`, userRoutes);
 app.use(apiBaseUrl, apiRoutes);
 
 // Health check endpoint - mounted at root level for monitoring

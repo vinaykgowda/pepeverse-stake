@@ -86,6 +86,13 @@ try {
 }
 
 try {
+  const userRoutes = require('../routes/user');
+  app.use('/api/v1/user', userRoutes);
+} catch (error) {
+  console.error('Failed to load user routes:', error.message);
+}
+
+try {
   const apiRoutes = require('../src/solana-api-endpoints');
   app.use('/api/v1', apiRoutes);
 } catch (error) {

@@ -151,12 +151,46 @@ const adminApi = {
 
   // Settings
   getSettings: () => api.get('/admin/settings'),
-  updateSettings: (settings) => api.put('/admin/settings', { settings })
+  updateSettings: (settings) => api.put('/admin/settings', { settings }),
+
+  // Token Balances
+  getTokenBalances: () => api.get('/admin/token-balances'),
+
+  // Airdrops
+  getAirdrops: (params) => api.get('/admin/airdrops', { params }),
+  createAirdrop: (data) => api.post('/admin/airdrops', data),
+  updateAirdrop: (id, data) => api.put(`/admin/airdrops/${id}`, data),
+  deleteAirdrop: (id) => api.delete(`/admin/airdrops/${id}`),
+  activateAirdrop: (id) => api.post(`/admin/airdrops/${id}/activate`),
+  deactivateAirdrop: (id) => api.post(`/admin/airdrops/${id}/deactivate`),
+  getEligibleWallets: (id) => api.get(`/admin/airdrops/${id}/eligible-wallets`),
+
+  // Claims Analytics
+  getClaimsAnalytics: (params) => {
+    if (params && params.export === 'csv') {
+      return api.get('/admin/analytics/claims', { params, responseType: 'blob' });
+    }
+    return api.get('/admin/analytics/claims', { params });
+  },
+  getAirdropClaimsAnalytics: (params) => {
+    if (params && params.export === 'csv') {
+      return api.get('/admin/analytics/airdrop-claims', { params, responseType: 'blob' });
+    }
+    return api.get('/admin/analytics/airdrop-claims', { params });
+  }
+};
+
+// User-facing airdrop API calls (uses wallet JWT via x-auth-token header)
+const userApi = {
+  getAirdrops: (walletAddress) => api.get(`/user/airdrops/${walletAddress}`),
+  getAirdropQuote: (data) => api.post('/user/airdrops/quote', data),
+  claimAirdrop: (data) => api.post('/user/airdrops/claim', data)
 };
 
 export default {
   auth: authApi,
   nft: nftApi,
   staking: stakingApi,
-  admin: adminApi
+  admin: adminApi,
+  user: userApi
 };

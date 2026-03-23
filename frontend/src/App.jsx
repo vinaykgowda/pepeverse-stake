@@ -24,6 +24,9 @@ import AdminWallet from './pages/Admin/Wallet';
 import AdminSettings from './pages/Admin/Settings';
 import AdminProfile from './pages/Admin/Profile';
 import AdminLogin from './pages/Admin/Login';
+import AdminAirdrops from './pages/Admin/Airdrops';
+import AdminClaimsAnalytics from './pages/Admin/ClaimsAnalytics';
+import AdminAirdropAnalytics from './pages/Admin/AirdropAnalytics';
 
 import PrivateRoute from './components/Auth/PrivateRoute';
 import AdminRoute from './components/Auth/AdminRoute';
@@ -143,6 +146,30 @@ function App() {
                     element={
                       <AdminRoute>
                         <AdminProfile />
+                      </AdminRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/airdrops"
+                    element={
+                      <AdminRoute>
+                        <AdminAirdrops />
+                      </AdminRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/analytics/claims"
+                    element={
+                      <AdminRoute>
+                        <AdminClaimsAnalytics />
+                      </AdminRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/analytics/airdrop-claims"
+                    element={
+                      <AdminRoute>
+                        <AdminAirdropAnalytics />
                       </AdminRoute>
                     }
                   />

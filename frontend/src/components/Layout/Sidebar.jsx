@@ -112,6 +112,39 @@ const Sidebar = () => {
           </Link>
 
           <Link
+            to="/admin/airdrops"
+            className={`block px-4 py-2 rounded ${
+              location.pathname === '/admin/airdrops'
+                ? 'bg-gray-700 text-white'
+                : 'text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Airdrops
+          </Link>
+
+          <Link
+            to="/admin/analytics/claims"
+            className={`block px-4 py-2 rounded ${
+              location.pathname === '/admin/analytics/claims'
+                ? 'bg-gray-700 text-white'
+                : 'text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Claims Analytics
+          </Link>
+
+          <Link
+            to="/admin/analytics/airdrop-claims"
+            className={`block px-4 py-2 rounded ${
+              location.pathname === '/admin/analytics/airdrop-claims'
+                ? 'bg-gray-700 text-white'
+                : 'text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Airdrop Analytics
+          </Link>
+
+          <Link
             to="/admin/profile"
             className={`block px-4 py-2 rounded ${
               location.pathname === '/admin/profile'

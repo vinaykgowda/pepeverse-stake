@@ -5,11 +5,22 @@ import api from '../../services/api';
 import { isValidWalletAddress } from '../../utils/validation';
 import { formatWalletAddress } from '../../utils/format';
 
+const truncateMintAddress = (address) => {
+  if (!address || address.length <= 8) return address;
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+};
+
 const WalletManager = () => {
   const [settings, setSettings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+
+  // Token balances state
+  const [tokenBalances, setTokenBalances] = useState([]);
+  const [tokenBalancesLoading, setTokenBalancesLoading] = useState(false);
+  const [tokenBalancesError, setTokenBalancesError] = useState(null);
+  const [walletNotConfigured, setWalletNotConfigured] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -42,9 +53,34 @@ const WalletManager = () => {
     }
   };
 
+  // Fetch token balances
+  const fetchTokenBalances = async () => {
+    try {
+      setTokenBalancesLoading(true);
+      setTokenBalancesError(null);
+      setWalletNotConfigured(false);
+
+      const response = await api.admin.getTokenBalances();
+      const data = response.data;
+
+      if (data.walletNotConfigured) {
+        setWalletNotConfigured(true);
+        setTokenBalances([]);
+      } else {
+        setTokenBalances(data.data || []);
+      }
+    } catch (err) {
+      console.error('Error fetching token balances:', err);
+      setTokenBalancesError('Failed to fetch token balances');
+    } finally {
+      setTokenBalancesLoading(false);
+    }
+  };
+
   // Load settings on mount
   useEffect(() => {
     loadSettings();
+    fetchTokenBalances();
   }, []);
 
   // Handle form input change
@@ -103,8 +139,9 @@ const WalletManager = () => {
         private_key: ''
       });
 
-      // Reload settings
+      // Reload settings and refresh token balances
       loadSettings();
+      fetchTokenBalances();
     } catch (error) {
       console.error('Error updating wallet:', error);
       setError(error.response?.data?.message || 'Failed to update wallet');
@@ -277,6 +314,81 @@ const WalletManager = () => {
             </div>
           </div>
         </form>
+      </div>
+
+      {/* Token Balance Table */}
+      <div className="bg-white rounded-lg shadow-md p-6 mt-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-gray-900">Token Balances</h3>
+          <button
+            onClick={fetchTokenBalances}
+            disabled={tokenBalancesLoading}
+            className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-indigo-300"
+          >
+            {tokenBalancesLoading ? 'Refreshing...' : 'Refresh Balances'}
+          </button>
+        </div>
+
+        {tokenBalancesError && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {tokenBalancesError}
+          </div>
+        )}
+
+        {walletNotConfigured ? (
+          <div className="text-center py-8 text-gray-500">
+            <p>Rewards wallet not configured. Set up a wallet above to view token balances.</p>
+          </div>
+        ) : tokenBalancesLoading && tokenBalances.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <p>Loading token balances...</p>
+          </div>
+        ) : tokenBalances.length === 0 && !tokenBalancesLoading ? (
+          <div className="text-center py-8 text-gray-500">
+            <p>No reward tokens configured.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Token Symbol
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Mint Address
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Balance
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {tokenBalances.map((row, index) => (
+                  <tr key={row.token_address || index}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {row.token_symbol}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+                      <span title={row.token_address}>
+                        {truncateMintAddress(row.token_address)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {row.error ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                          Error
+                        </span>
+                      ) : (
+                        row.balance
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

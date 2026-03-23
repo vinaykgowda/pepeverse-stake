@@ -187,6 +187,60 @@ class HeliusProxyService {
   }
   
   /**
+   * Get SPL token accounts owned by a wallet address
+   * Used to fetch token balances for the rewards wallet
+   * Requirements: 1.1, 1.2, 1.5
+   *
+   * @param {string} ownerAddress - Wallet address
+   * @param {string} mintAddress - Token mint address to filter by
+   * @returns {Promise<object>} Token account data including balance
+   */
+  async getTokenAccountsByOwner(ownerAddress, mintAddress) {
+    if (this.disabled) {
+      throw new Error('Helius service is not configured. Please set HELIUS_API_KEY and HELIUS_MAINNET_ENDPOINT environment variables.');
+    }
+
+    const cacheKey = `token-accounts:${ownerAddress}:${mintAddress}`;
+
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      console.log(`Cache hit for token accounts: ${ownerAddress}:${mintAddress}`);
+      return cached;
+    }
+
+    console.log(`Cache miss for token accounts: ${ownerAddress}:${mintAddress}, fetching from Helius...`);
+
+    const response = await axios.post(
+      `${this.baseUrl}`,
+      {
+        jsonrpc: '2.0',
+        id: 'helius-proxy',
+        method: 'getTokenAccountsByOwner',
+        params: [
+          ownerAddress,
+          { mint: mintAddress },
+          { encoding: 'jsonParsed' }
+        ]
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        params: { 'api-key': this.apiKey },
+        timeout: 10000
+      }
+    );
+
+    const data = response.data;
+
+    if (data.error) {
+      throw new Error(`Helius API error: ${data.error.message}`);
+    }
+
+    const result = data.result;
+    this.cache.set(cacheKey, result);
+    return result;
+  }
+
+  /**
    * Clear the entire cache
    */
   clearCache() {
