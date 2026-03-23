@@ -35,8 +35,10 @@ const RewardsPanel = () => {
     } catch (error) {
       console.error('❌ Error loading rewards:', error);
       setError(error.message || 'Failed to load rewards');
+      return false; // signal failure
     }
-  }, [calculateRewards]); // Memoize with calculateRewards dependency
+    return true;
+  }, [calculateRewards]);
 
   // Get claim quote using WalletContext - memoized
   const getClaimQuote = useCallback(async () => {
@@ -242,12 +244,16 @@ const RewardsPanel = () => {
     }
   }, [wallet]);
 
-  // Load rewards on mount
+  // Load rewards on mount — stop polling if first load fails
   useEffect(() => {
-    loadRewards();
+    let interval = null;
+    loadRewards().then(ok => {
+      if (ok) {
+        interval = setInterval(loadRewards, 10000);
+      }
+    });
     loadAirdrops();
-    const interval = setInterval(loadRewards, 10000);
-    return () => clearInterval(interval);
+    return () => { if (interval) clearInterval(interval); };
   }, [loadRewards, loadAirdrops]);
 
   // Format countdown from seconds remaining
