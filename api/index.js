@@ -37,33 +37,61 @@ app.use(async (req, res, next) => {
   try { req.db = await getDbPool(); next(); } catch (error) { next(); }
 });
 
-// Load routes from backend/routes/ - these have correct internal relative paths
+// Load routes
 try {
-  app.use('/api/v1/auth', require('../routes/auth'));
-} catch (e) { console.error('Failed to load auth routes:', e.message); }
+  const authRoutes = require('../routes/auth');
+  app.use('/api/v1/auth', authRoutes);
+  console.log('[ROUTES] auth loaded from ../routes/auth');
+} catch (e) { console.error('[ROUTES] Failed to load auth routes:', e.message); }
 
 try {
-  app.use('/api/v1/helius', require('../routes/helius'));
-} catch (e) { console.error('Failed to load helius routes:', e.message); }
+  const heliusRoutes = require('../routes/helius');
+  app.use('/api/v1/helius', heliusRoutes);
+  console.log('[ROUTES] helius loaded from ../routes/helius');
+} catch (e) { console.error('[ROUTES] Failed to load helius routes:', e.message); }
 
 try {
-  app.use('/api/v1/admin', require('../backend/routes/admin'));
-} catch (e) { console.error('Failed to load admin routes:', e.message); }
+  const adminRoutes = require('../backend/routes/admin');
+  app.use('/api/v1/admin', adminRoutes);
+  console.log('[ROUTES] admin loaded from ../backend/routes/admin');
+} catch (e) { console.error('[ROUTES] Failed to load admin routes:', e.message, e.stack); }
 
 try {
-  app.use('/api/v1/user', require('../backend/routes/user'));
-} catch (e) { console.error('Failed to load user routes:', e.message); }
+  const userRoutes = require('../backend/routes/user');
+  app.use('/api/v1/user', userRoutes);
+  console.log('[ROUTES] user loaded from ../backend/routes/user');
+} catch (e) { console.error('[ROUTES] Failed to load user routes:', e.message, e.stack); }
 
 try {
-  app.use('/api/v1', require('../src/solana-api-endpoints'));
-} catch (e) { console.error('Failed to load API routes:', e.message); }
+  const apiRoutes = require('../src/solana-api-endpoints');
+  app.use('/api/v1', apiRoutes);
+  console.log('[ROUTES] solana-api-endpoints loaded');
+} catch (e) { console.error('[ROUTES] Failed to load API routes:', e.message); }
+
+// Debug: log all registered routes
+app.get('/api/v1/debug-routes', (req, res) => {
+  const routes = [];
+  app._router.stack.forEach(layer => {
+    if (layer.handle && layer.handle.stack) {
+      layer.handle.stack.forEach(r => {
+        if (r.route) routes.push({ path: layer.regexp.toString().substring(0, 60), route: r.route.path, methods: Object.keys(r.route.methods) });
+      });
+    } else if (layer.route) {
+      routes.push({ path: layer.route.path, methods: Object.keys(layer.route.methods) });
+    }
+  });
+  res.json({ routes });
+});
 
 // 404
-app.use((req, res) => res.status(404).json({ error: 'Not Found', path: req.path, message: 'The requested endpoint does not exist' }));
+app.use((req, res) => {
+  console.log('[404]', req.method, req.path);
+  res.status(404).json({ error: 'Not Found', path: req.path, message: 'The requested endpoint does not exist' });
+});
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  console.error('[ERROR]', err.message, err.stack);
   res.status(err.status || 500).json({ error: err.message || 'Internal Server Error' });
 });
 
