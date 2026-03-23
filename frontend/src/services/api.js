@@ -156,6 +156,9 @@ const adminApi = {
   // Token Balances
   getTokenBalances: () => api.get('/admin/token-balances'),
 
+  // All tokens (from rewards + trait_rewards)
+  getTokens: () => api.get('/admin/tokens'),
+
   // Airdrops
   getAirdrops: (params) => api.get('/admin/airdrops', { params }),
   createAirdrop: (data) => api.post('/admin/airdrops', data),

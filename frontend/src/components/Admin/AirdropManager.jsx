@@ -26,7 +26,7 @@ const EMPTY_FORM = {
 const AirdropManager = () => {
   const [airdrops, setAirdrops] = useState([]);
   const [collections, setCollections] = useState([]);
-  const [rewards, setRewards] = useState([]);
+  const [allTokens, setAllTokens] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -41,14 +41,14 @@ const AirdropManager = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [airdropRes, colRes, rewRes] = await Promise.all([
+      const [airdropRes, colRes, tokensRes] = await Promise.all([
         api.admin.getAirdrops(),
         api.admin.getCollections(),
-        api.admin.getRewards(),
+        api.admin.getTokens(),
       ]);
       setAirdrops(airdropRes.data.data || []);
       setCollections(colRes.data.data || []);
-      setRewards(rewRes.data.data || []);
+      setAllTokens(tokensRes.data.data || []);
     } catch (err) {
       setError('Failed to load data');
     } finally {
@@ -58,17 +58,8 @@ const AirdropManager = () => {
 
   useEffect(() => { loadData(); }, []);
 
-  // Tokens available for the selected collection
-  const collectionTokens = formData.collection_id
-    ? rewards
-        .filter(r => r.collection_id === parseInt(formData.collection_id))
-        .reduce((acc, r) => {
-          if (!acc.find(t => t.token_address === r.token_address)) {
-            acc.push({ token_address: r.token_address, token_symbol: r.token_symbol });
-          }
-          return acc;
-        }, [])
-    : [];
+  // Tokens available for selection (all tokens from rewards + trait_rewards)
+  const collectionTokens = allTokens;
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

@@ -37,10 +37,10 @@ const ClaimsAnalytics = () => {
       Object.keys(params).forEach(k => { if (!params[k]) delete params[k]; });
       const res = await api.admin.getClaimsAnalytics(params);
       const data = res.data;
-      setClaims(data.data?.claims || data.data || []);
+      setClaims(data.data?.records || data.data?.claims || []);
       if (data.data?.stats) setStats(data.data.stats);
-      if (data.data?.pagination) {
-        setTotalPages(Math.ceil(data.data.pagination.total / LIMIT) || 1);
+      if (data.data?.total != null) {
+        setTotalPages(Math.ceil(data.data.total / LIMIT) || 1);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load claims analytics');
