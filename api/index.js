@@ -86,7 +86,14 @@ try {
 }
 
 try {
-  const userRoutes = require('../routes/user');
+  const adminRoutes = require('../backend/routes/admin');
+  app.use('/api/v1/admin', adminRoutes);
+} catch (error) {
+  console.error('Failed to load admin routes:', error.message);
+}
+
+try {
+  const userRoutes = require('../backend/routes/user');
   app.use('/api/v1/user', userRoutes);
 } catch (error) {
   console.error('Failed to load user routes:', error.message);
