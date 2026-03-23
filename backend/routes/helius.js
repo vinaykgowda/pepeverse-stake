@@ -61,7 +61,7 @@ router.post('/nfts/by-owner', validateWalletAddress('ownerAddress'), async (req,
  *   "mintAddress": "nft_mint_address"
  * }
  */
-router.post('/nfts/metadata', validateWalletAddress('mintAddress'), async (req, res) => {
+router.post('/nfts/metadata', validateWalletAddress({ fields: ['mintAddress'] }), async (req, res) => {
   try {
     const { mintAddress } = req.body;
     

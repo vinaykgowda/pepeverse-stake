@@ -46,36 +46,25 @@ const RewardsManager = () => {
   };
 
   const fetchTokenDetailsFromHelius = async (mint) => {
-    try {
-      // Use backend proxy instead of direct Helius API call
-      // Requirement: 5.3 - Remove Helius API keys from frontend
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/helius/nfts/metadata`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          mintAddress: mint
-        }),
-      });
+    const baseUrl = import.meta.env.VITE_API_URL || '/api/v1';
+    const response = await fetch(`${baseUrl}/helius/nfts/metadata`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mintAddress: mint }),
+    });
 
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to fetch token details');
-      }
+    const data = await response.json();
 
-      const metadata = data.data?.content?.metadata;
-      const tokenInfo = data.data?.token_info;
-
-      return {
-        symbol: metadata?.symbol || '',
-        decimals: tokenInfo?.decimals || '0'
-      };
-    } catch (error) {
-      console.error("Failed to fetch token details:", error);
-      return { symbol: '', decimals: '0' };
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to fetch token details');
     }
+
+    const symbol = data.data?.content?.metadata?.symbol
+      || data.data?.token_info?.symbol
+      || '';
+    const decimals = data.data?.token_info?.decimals ?? 0;
+
+    return { symbol, decimals };
   };
 
 
@@ -99,17 +88,18 @@ const RewardsManager = () => {
     }
     setFetchingToken(true);
     setTokenFetchError(null);
-    const details = await fetchTokenDetailsFromHelius(formData.token_address);
-    if (!details.symbol && details.decimals === '0') {
-      setTokenFetchError('Could not fetch token details');
-    } else {
+    try {
+      const details = await fetchTokenDetailsFromHelius(formData.token_address);
       setFormData(prev => ({
         ...prev,
         token_symbol: details.symbol,
         token_decimals: details.decimals.toString()
       }));
+    } catch (err) {
+      setTokenFetchError(err.message || 'Could not fetch token details');
+    } finally {
+      setFetchingToken(false);
     }
-    setFetchingToken(false);
   };
 
 
