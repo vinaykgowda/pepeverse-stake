@@ -51,9 +51,9 @@ try {
 } catch (e) { console.error('[ROUTES] Failed to load helius routes:', e.message); }
 
 try {
-  const adminRoutes = require('../backend/routes/admin');
+  const adminRoutes = require('./admin-routes');
   app.use('/api/v1/admin', adminRoutes);
-  console.log('[ROUTES] admin loaded from ../backend/routes/admin');
+  console.log('[ROUTES] admin-routes loaded from ./admin-routes');
 } catch (e) { console.error('[ROUTES] Failed to load admin routes:', e.message, e.stack); }
 
 try {
