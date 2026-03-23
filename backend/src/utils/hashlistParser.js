@@ -54,10 +54,10 @@ function normalizeAddress(address) {
 }
 
 /**
- * Parse hashlist from newline-separated format
+ * Parse hashlist from newline-separated or JSON array format
  * Requirements: 15.1, 15.2, 15.4
  * 
- * @param {string} hashlistString - Newline-separated mint addresses
+ * @param {string} hashlistString - Newline-separated or JSON array of mint addresses
  * @returns {Object} - { success: boolean, addresses: string[], errors: string[] }
  */
 function parseHashlist(hashlistString) {
@@ -67,6 +67,20 @@ function parseHashlist(hashlistString) {
       addresses: [],
       errors: ['Hashlist must be a non-empty string']
     };
+  }
+
+  // Support JSON array format: ["addr1", "addr2", ...]
+  const trimmed = hashlistString.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        return { success: false, addresses: [], errors: ['JSON input must be an array'] };
+      }
+      hashlistString = parsed.join('\n');
+    } catch (e) {
+      return { success: false, addresses: [], errors: ['Invalid JSON array format'] };
+    }
   }
 
   const lines = hashlistString.split('\n');
