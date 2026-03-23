@@ -72,8 +72,8 @@ async function generateSnapshot(airdropConfigId, client) {
   let eligibleWallets;
   if (config.airdrop_type === 'threshold') {
     const r = await client.query(
-      `SELECT wallet_address, COUNT(*) AS staked_count FROM staked_nfts
-       WHERE collection_id = $1 GROUP BY wallet_address HAVING COUNT(*) >= $2`,
+      `SELECT owner_wallet AS wallet_address, COUNT(*) AS staked_count FROM staked_nfts
+       WHERE collection_id = $1 GROUP BY owner_wallet HAVING COUNT(*) >= $2`,
       [config.collection_id, config.minimum_threshold]
     );
     eligibleWallets = r.rows.map(row => ({
@@ -84,9 +84,9 @@ async function generateSnapshot(airdropConfigId, client) {
   } else if (config.airdrop_type === 'trait') {
     const traitFilter = JSON.stringify([{ trait_type: config.trait_type, value: config.trait_value }]);
     const r = await client.query(
-      `SELECT wallet_address, COUNT(*) AS matching_count FROM staked_nfts
+      `SELECT owner_wallet AS wallet_address, COUNT(*) AS matching_count FROM staked_nfts
        WHERE collection_id = $1 AND traits::jsonb @> $2::jsonb
-       GROUP BY wallet_address HAVING COUNT(*) > 0`,
+       GROUP BY owner_wallet HAVING COUNT(*) > 0`,
       [config.collection_id, traitFilter]
     );
     eligibleWallets = r.rows.map(row => ({
@@ -222,8 +222,8 @@ router.post('/airdrops', verifyJWT, verifyAdmin, async (req, res) => {
     if (airdrop_type === 'threshold') {
       const r = await pool.query(
         `SELECT SUM(staked_count * $2) AS max_cost FROM (
-           SELECT wallet_address, COUNT(*) AS staked_count FROM staked_nfts
-           WHERE collection_id = $1 GROUP BY wallet_address HAVING COUNT(*) >= $3
+           SELECT owner_wallet, COUNT(*) AS staked_count FROM staked_nfts
+           WHERE collection_id = $1 GROUP BY owner_wallet HAVING COUNT(*) >= $3
          ) eligible`,
         [collection_id, amount_per_nft, minimum_threshold]
       );
@@ -231,9 +231,9 @@ router.post('/airdrops', verifyJWT, verifyAdmin, async (req, res) => {
     } else {
       const r = await pool.query(
         `SELECT SUM(matching_count * $2) AS max_cost FROM (
-           SELECT wallet_address, COUNT(*) AS matching_count FROM staked_nfts
+           SELECT owner_wallet, COUNT(*) AS matching_count FROM staked_nfts
            WHERE collection_id = $1 AND traits::jsonb @> $3::jsonb
-           GROUP BY wallet_address HAVING COUNT(*) > 0
+           GROUP BY owner_wallet HAVING COUNT(*) > 0
          ) eligible`,
         [collection_id, amount_per_nft, JSON.stringify([{ trait_type, value: trait_value }])]
       );
@@ -395,8 +395,8 @@ router.get('/airdrops/:id/eligible-wallets', verifyJWT, verifyAdmin, async (req,
     let wallets = [];
     if (config.airdrop_type === 'threshold') {
       const r = await pool.query(
-        `SELECT wallet_address, COUNT(*) AS eligible_nft_count FROM staked_nfts
-         WHERE collection_id = $1 GROUP BY wallet_address HAVING COUNT(*) >= $2`,
+        `SELECT owner_wallet AS wallet_address, COUNT(*) AS eligible_nft_count FROM staked_nfts
+         WHERE collection_id = $1 GROUP BY owner_wallet HAVING COUNT(*) >= $2`,
         [config.collection_id, config.minimum_threshold]
       );
       wallets = r.rows.map(row => ({
@@ -407,9 +407,9 @@ router.get('/airdrops/:id/eligible-wallets', verifyJWT, verifyAdmin, async (req,
       }));
     } else {
       const r = await pool.query(
-        `SELECT wallet_address, COUNT(*) AS eligible_nft_count FROM staked_nfts
+        `SELECT owner_wallet AS wallet_address, COUNT(*) AS eligible_nft_count FROM staked_nfts
          WHERE collection_id = $1 AND traits::jsonb @> $2::jsonb
-         GROUP BY wallet_address HAVING COUNT(*) > 0`,
+         GROUP BY owner_wallet HAVING COUNT(*) > 0`,
         [config.collection_id, JSON.stringify([{ trait_type: config.trait_type, value: config.trait_value }])]
       );
       wallets = r.rows.map(row => ({

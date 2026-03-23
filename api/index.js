@@ -270,7 +270,7 @@ stakingRouter.get('/nfts/staked', verifyJWT, async (req, res) => {
     const result = await getPool().query(
       `SELECT sn.*, c.name as collection_name FROM staked_nfts sn
        JOIN collections c ON sn.collection_id = c.id
-       WHERE sn.wallet_address = $1 ORDER BY sn.stake_timestamp DESC`,
+       WHERE sn.owner_wallet = $1 ORDER BY sn.stake_timestamp DESC`,
       [req.user.walletAddress]
     );
     const LOCK_MS = 24 * 60 * 60 * 1000;
@@ -288,7 +288,7 @@ stakingRouter.get('/staking/stats', verifyJWT, async (req, res) => {
     const result = await getPool().query(
       `SELECT c.id, c.name, COUNT(sn.id) as staked_count
        FROM collections c
-       LEFT JOIN staked_nfts sn ON c.id = sn.collection_id AND sn.wallet_address = $1
+       LEFT JOIN staked_nfts sn ON c.id = sn.collection_id AND sn.owner_wallet = $1
        GROUP BY c.id, c.name ORDER BY c.name`,
       [req.user.walletAddress]
     );
@@ -299,17 +299,17 @@ stakingRouter.get('/staking/stats', verifyJWT, async (req, res) => {
 stakingRouter.get('/rewards/calculate', verifyJWT, async (req, res) => {
   try {
     const result = await getPool().query(
-      `SELECT s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.last_claim_timestamp, s.traits,
+      `SELECT s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.traits,
               c.name as collection_name, cr.id as reward_id, cr.token_address, cr.token_symbol,
               cr.daily_rate, cr.token_decimals,
-              EXTRACT(EPOCH FROM (NOW() - COALESCE(s.last_claim_timestamp, s.stake_timestamp))) as seconds_since_last_claim,
+              EXTRACT(EPOCH FROM (NOW() - s.stake_timestamp)) as seconds_since_last_claim,
               STRING_AGG(CONCAT(tr.trait_type, ':', tr.trait_value, ':', tr.multiplier), '||') as trait_multipliers
        FROM staked_nfts s
        JOIN collections c ON s.collection_id = c.id
        LEFT JOIN collection_rewards cr ON c.id = cr.collection_id AND cr.is_active = TRUE
        LEFT JOIN trait_rewards tr ON tr.collection_id = s.collection_id AND tr.token_address = cr.token_address AND tr.is_active = TRUE
-       WHERE s.wallet_address = $1
-       GROUP BY s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.last_claim_timestamp, s.traits,
+       WHERE s.owner_wallet = $1
+       GROUP BY s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.traits,
                 c.name, cr.id, cr.token_address, cr.token_symbol, cr.daily_rate, cr.token_decimals`,
       [req.user.walletAddress]
     );
