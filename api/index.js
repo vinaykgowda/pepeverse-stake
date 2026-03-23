@@ -1,4 +1,4 @@
-// backend/api/index.js - Vercel Serverless Entry Point
+// api/index.js - Vercel Serverless Entry Point (v2)
 
 const express = require('express');
 const helmet = require('helmet');

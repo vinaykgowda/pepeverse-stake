@@ -453,6 +453,24 @@ router.post('/admin/collections', verifyJWT, verifyAdmin, upload.single('hashlis
 
     let hashlistString = file.buffer.toString('utf-8');
 
+    // Handle JSON array format directly (pretty-printed or single-line)
+    const trimmedContent = hashlistString.trim();
+    if (trimmedContent.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmedContent);
+        if (Array.isArray(parsed)) {
+          hashlistString = parsed.join('\n');
+        }
+      } catch (e) {
+        // Pretty-printed: strip quotes/commas/brackets line by line
+        hashlistString = trimmedContent
+          .split('\n')
+          .map(l => l.trim().replace(/^["']/, '').replace(/["'],?$/, '').trim())
+          .filter(l => l.length > 0 && l !== '[' && l !== ']')
+          .join('\n');
+      }
+    }
+
     // Validate the hashlist using standardized parser
     // Requirements: 15.2, 15.3
     const result = parseHashlist(hashlistString);
