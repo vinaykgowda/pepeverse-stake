@@ -4,6 +4,7 @@ import React, { createContext, useState, useContext, useEffect, useMemo, useCall
 import walletService from '../services/wallet';
 import api from '../services/api';
 import heliusService from '../services/helius';
+import { useAuth } from './AuthContext';
 
 // Create context
 const WalletContext = createContext();
@@ -20,6 +21,8 @@ export const WalletProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [collections, setCollections] = useState([]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const { setWalletUser } = useAuth();
 
   // Refs to prevent infinite loops
   const loadingCollectionsRef = useRef(false);
@@ -119,6 +122,9 @@ export const WalletProvider = ({ children }) => {
       setWallet(newWallet);
       setConnected(true);
 
+      // Sync user into AuthContext so PrivateRoute sees isAuthenticated immediately
+      setWalletUser(authResult.user);
+
       console.log('✅ Wallet connected successfully');
       return { success: true };
     } catch (error) {
@@ -145,6 +151,7 @@ export const WalletProvider = ({ children }) => {
       setCollections([]);
       setError(null);
       initialLoadDoneRef.current = false;
+      setWalletUser(null);
 
       console.log('✅ Wallet disconnected');
     } catch (error) {

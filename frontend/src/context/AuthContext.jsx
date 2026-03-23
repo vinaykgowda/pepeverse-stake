@@ -89,6 +89,11 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  // Called by WalletContext after wallet sign-in to sync user state
+  const setWalletUser = useCallback((userData) => {
+    setUser(userData);
+  }, []);
+
   const clearError = useCallback(() => setError(null), []);
 
   // Memoize context value
@@ -101,8 +106,9 @@ export const AuthProvider = ({ children }) => {
     isSuperAdmin: user?.isSuperAdmin || false,
     login,
     logout,
+    setWalletUser,
     clearError
-  }), [user, loading, error, login, logout, clearError]);
+  }), [user, loading, error, login, logout, setWalletUser, clearError]);
 
   return (
     <AuthContext.Provider value={contextValue}>
