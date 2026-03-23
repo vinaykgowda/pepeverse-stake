@@ -68,6 +68,9 @@ const disconnectWallet = async () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
 
+    // Notify AuthContext to clear user state
+    window.dispatchEvent(new Event('wallet-auth'));
+
     // Clear NFT cache
     heliusService.clearCache();
 
@@ -143,6 +146,9 @@ const signAndVerify = async () => {
     localStorage.setItem('token', verifyResponse.data.token);
     localStorage.setItem('user', JSON.stringify(verifyResponse.data.user));
     console.log('User authenticated and token stored');
+
+    // Notify AuthContext to sync user state
+    window.dispatchEvent(new Event('wallet-auth'));
 
     return {
       success: true,

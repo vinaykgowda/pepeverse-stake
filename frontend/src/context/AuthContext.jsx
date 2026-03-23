@@ -32,6 +32,22 @@ export const AuthProvider = ({ children }) => {
     initUser();
   }, []);
 
+  // Listen for wallet auth events (fired by wallet.js after sign-in or disconnect)
+  useEffect(() => {
+    const handleWalletAuth = () => {
+      try {
+        const userJson = localStorage.getItem('user');
+        const token = localStorage.getItem('token');
+        if (userJson && token) setUser(JSON.parse(userJson));
+        else setUser(null);
+      } catch (e) {
+        setUser(null);
+      }
+    };
+    window.addEventListener('wallet-auth', handleWalletAuth);
+    return () => window.removeEventListener('wallet-auth', handleWalletAuth);
+  }, []);
+
   // Memoize logout function to prevent recreation
   const logout = useCallback((isTimeout = false) => {
     localStorage.removeItem('token');
@@ -89,11 +105,6 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Called by WalletContext after wallet sign-in to sync user state
-  const setWalletUser = useCallback((userData) => {
-    setUser(userData);
-  }, []);
-
   const clearError = useCallback(() => setError(null), []);
 
   // Memoize context value
@@ -106,9 +117,8 @@ export const AuthProvider = ({ children }) => {
     isSuperAdmin: user?.isSuperAdmin || false,
     login,
     logout,
-    setWalletUser,
     clearError
-  }), [user, loading, error, login, logout, setWalletUser, clearError]);
+  }), [user, loading, error, login, logout, clearError]);
 
   return (
     <AuthContext.Provider value={contextValue}>
