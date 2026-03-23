@@ -215,10 +215,17 @@ class AuthService {
       throw new Error('Invalid wallet address encoding');
     }
 
-    // Decode the signature from base58
+    // Decode the signature — frontend sends base64, fall back to base58
     let signatureBytes;
     try {
-      signatureBytes = bs58.decode(signature);
+      const buf = Buffer.from(signature, 'base64');
+      // base64 decode of a 64-byte value always produces exactly 64 bytes;
+      // if it doesn't, try base58 (legacy clients)
+      if (buf.length === 64) {
+        signatureBytes = buf;
+      } else {
+        signatureBytes = bs58.decode(signature);
+      }
     } catch (error) {
       throw new Error('Invalid signature encoding');
     }
