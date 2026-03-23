@@ -109,12 +109,19 @@ const signAndVerify = async () => {
 
     // Sign message
     console.log('Requesting signature from wallet');
-    const signatureBytes = await currentWallet.signMessage(encodedMessage);
+    const signResult = await currentWallet.signMessage(encodedMessage);
     console.log('Message signed successfully');
 
-    // Convert signature to base64 for transmission
-    const signature = Buffer.from(signatureBytes).toString('base64');
-    console.log(`Signature (base64): ${signature}`);
+    // Wallet adapters may return a plain Uint8Array or { signature: Uint8Array }
+    const rawBytes = signResult instanceof Uint8Array ? signResult : signResult.signature;
+    if (!rawBytes || rawBytes.length !== 64) {
+      throw new Error(`Unexpected signature format from wallet (length: ${rawBytes?.length})`);
+    }
+
+    // Convert signature to base58 for transmission (standard Solana encoding)
+    const bs58 = await import('bs58');
+    const signature = bs58.default.encode(rawBytes);
+    console.log(`Signature (base58): ${signature.substring(0, 20)}...`);
 
     // Log verification request
     console.log('Sending verification request with:', {

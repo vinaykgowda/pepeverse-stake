@@ -215,26 +215,23 @@ class AuthService {
       throw new Error('Invalid wallet address encoding');
     }
 
-    // Decode the signature — frontend sends base64, fall back to base58
+    // Decode the signature — accept base58 (standard) or base64 (legacy)
     let signatureBytes;
     try {
-      const buf = Buffer.from(signature, 'base64');
-      // base64 decode of a 64-byte value always produces exactly 64 bytes;
-      // if it doesn't, try base58 (legacy clients)
-      if (buf.length === 64) {
-        signatureBytes = buf;
+      // Try base58 first (standard Solana encoding)
+      const decoded = bs58.decode(signature);
+      if (decoded.length === 64) {
+        signatureBytes = decoded;
       } else {
-        signatureBytes = bs58.decode(signature);
+        // Fall back to base64
+        const buf = Buffer.from(signature, 'base64');
+        if (buf.length !== 64) throw new Error('wrong length');
+        signatureBytes = buf;
       }
     } catch (error) {
       throw new Error('Invalid signature encoding');
     }
     
-    // Check signature length after successful decode
-    if (signatureBytes.length !== 64) {
-      throw new Error('Invalid signature length');
-    }
-
     // Convert message to bytes
     const messageBytes = Buffer.from(message, 'utf8');
 
