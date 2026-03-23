@@ -28,6 +28,8 @@ const TraitManager = () => {
   const [editMode, setEditMode] = useState(false);
   const [editId, setEditId] = useState(null);
   const [collectionTokens, setCollectionTokens] = useState([]);
+  const [fetchingToken, setFetchingToken] = useState(false);
+  const [tokenFetchError, setTokenFetchError] = useState(null);
 
   const loadData = async () => {
     try {
@@ -74,8 +76,36 @@ const TraitManager = () => {
         const token = collectionTokens.find(t => t.token_address === value);
         if (token) next.token_symbol = token.token_symbol;
       }
+      if (name === 'new_token_address') setTokenFetchError(null);
       return next;
     });
+  };
+
+  const handleFetchToken = async () => {
+    const mint = formData.new_token_address;
+    if (!mint || mint.length < 32) {
+      setTokenFetchError('Enter a valid token address first');
+      return;
+    }
+    setFetchingToken(true);
+    setTokenFetchError(null);
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || '/api/v1';
+      const response = await fetch(`${baseUrl}/helius/nfts/metadata`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mintAddress: mint }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to fetch token details');
+      const symbol = data.data?.content?.metadata?.symbol || data.data?.token_info?.symbol || '';
+      if (!symbol) throw new Error('Symbol not found for this token');
+      setFormData(prev => ({ ...prev, new_token_symbol: symbol }));
+    } catch (err) {
+      setTokenFetchError(err.message || 'Could not fetch token details');
+    } finally {
+      setFetchingToken(false);
+    }
   };
 
   const resetForm = () => {
@@ -312,14 +342,27 @@ const TraitManager = () => {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <input
-                        type="text"
-                        name="new_token_address"
-                        value={formData.new_token_address}
-                        onChange={handleInputChange}
-                        placeholder="Token mint address"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          name="new_token_address"
+                          value={formData.new_token_address}
+                          onChange={handleInputChange}
+                          placeholder="Token mint address"
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleFetchToken}
+                          disabled={fetchingToken}
+                          className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {fetchingToken ? '...' : 'Fetch'}
+                        </button>
+                      </div>
+                      {tokenFetchError && (
+                        <p className="mt-1 text-xs text-red-500">{tokenFetchError}</p>
+                      )}
                     </div>
                     <div>
                       <input
