@@ -466,10 +466,11 @@ router.post('/admin/collections', verifyJWT, verifyAdmin, upload.single('hashlis
       });
     }
 
-    // Store in newline-separated format (Requirement 15.1)
+    // Store in normalized newline-separated format (Requirement 15.1)
+    const normalizedHashlist = result.addresses.join('\n');
     await pool.query(
       'INSERT INTO collections (name, creator_address, hashlist) VALUES ($1, $2, $3)',
-      [name, creator_address, hashlistString.trim()]
+      [name, creator_address, normalizedHashlist]
     );
 
     // Invalidate collection cache after adding new collection
@@ -541,7 +542,7 @@ router.put('/collections/:id', verifyJWT, verifyAdmin, upload.single('hashlist')
       }
 
       updateFields.push(`hashlist = $${paramIndex++}`);
-      values.push(hashlistString.trim());
+      values.push(result.addresses.join('\n'));
     }
 
     if (updateFields.length === 0) {
