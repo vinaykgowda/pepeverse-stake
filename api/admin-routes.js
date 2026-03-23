@@ -426,11 +426,12 @@ router.get('/airdrops/:id/eligible-wallets', verifyJWT, verifyAdmin, async (req,
   }
 });
 
+
 // GET /api/v1/admin/analytics/claims
 router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
   try {
     const pool = getPool();
-    const { start_date, end_date, collection_id, wallet_address, page = 1, limit = 50, export: exportFormat } = req.query;
+    const { start_date, end_date, wallet_address, page = 1, limit = 50, export: exportFormat } = req.query;
     const pageLimit = Math.min(parseInt(limit, 10) || 50, 100);
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
     const offset = (pageNum - 1) * pageLimit;
@@ -440,11 +441,11 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
     let p = 1;
     if (start_date) { conditions.push(`t.created_at >= $${p++}`); params.push(start_date); }
     if (end_date) { conditions.push(`t.created_at <= $${p++}`); params.push(end_date); }
-    if (collection_id) { conditions.push(`t.collection_id = $${p++}`); params.push(collection_id); }
     if (wallet_address) { conditions.push(`t.wallet_address ILIKE $${p++}`); params.push(wallet_address); }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
-    const baseSelect = `FROM transactions t LEFT JOIN collections c ON t.collection_id = c.id ${whereClause}`;
+    // transactions table has no collection_id column — omit join
+    const baseSelect = `FROM transactions t ${whereClause}`;
 
     const statsResult = await pool.query(
       `SELECT COUNT(*) AS count, COALESCE(SUM(t.amount), 0) AS total_distributed,
@@ -459,7 +460,7 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
 
     if (exportFormat === 'csv') {
       const csvResult = await pool.query(
-        `SELECT t.wallet_address, COALESCE(c.name, '') AS collection_name,
+        `SELECT t.wallet_address, '' AS collection_name,
                 '' AS token_symbol, t.amount, t.created_at AS timestamp,
                 COALESCE(t.transaction_hash, '') AS transaction_hash
          ${baseSelect} ORDER BY t.created_at DESC`,
@@ -478,7 +479,7 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
     }
 
     const recordsResult = await pool.query(
-      `SELECT t.id, t.wallet_address, COALESCE(c.name, '') AS collection_name,
+      `SELECT t.id, t.wallet_address, '' AS collection_name,
               '' AS token_symbol, t.amount, t.created_at AS timestamp,
               COALESCE(t.transaction_hash, '') AS transaction_hash, t.status
        ${baseSelect} ORDER BY t.created_at DESC LIMIT $${p} OFFSET $${p + 1}`,

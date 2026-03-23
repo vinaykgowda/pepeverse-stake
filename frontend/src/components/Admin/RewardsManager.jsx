@@ -18,8 +18,13 @@ const RewardsManager = () => {
     token_address: '',
     token_symbol: '',
     token_decimals: '9',
-    daily_rate: '1'
+    daily_rate: '1',
+    new_token_address: '',
+    new_token_symbol: '',
+    new_token_decimals: '9',
   });
+  const [tokenMode, setTokenMode] = useState('existing');
+  const [allTokens, setAllTokens] = useState([]);
   const [fetchingToken, setFetchingToken] = useState(false);
   const [tokenFetchError, setTokenFetchError] = useState(null);
   const [editMode, setEditMode] = useState(false);
@@ -29,14 +34,14 @@ const RewardsManager = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-
-      // Load collections
-      const collectionsResponse = await api.admin.getCollections();
+      const [collectionsResponse, rewardsResponse, tokensResponse] = await Promise.all([
+        api.admin.getCollections(),
+        api.admin.getRewards(),
+        api.admin.getTokens(),
+      ]);
       setCollections(collectionsResponse.data.data);
-
-      // Load rewards
-      const rewardsResponse = await api.admin.getRewards();
       setRewards(rewardsResponse.data.data);
+      setAllTokens(tokensResponse.data.data || []);
     } catch (error) {
       console.error('Error loading data:', error);
       setError('Failed to load data');
@@ -76,25 +81,44 @@ const RewardsManager = () => {
   // Handle form input change
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    if (name === 'token_address') setTokenFetchError(null);
+    setFormData(prev => {
+      const next = { ...prev, [name]: value };
+      if (name === 'token_address') {
+        const token = allTokens.find(t => t.token_address === value);
+        if (token) {
+          next.token_symbol = token.token_symbol;
+          next.token_decimals = String(token.token_decimals ?? 9);
+        }
+        setTokenFetchError(null);
+      }
+      return next;
+    });
   };
 
   // Fetch token details from Helius on button click
   const handleFetchToken = async () => {
-    if (!isValidWalletAddress(formData.token_address)) {
+    const addr = tokenMode === 'new' ? formData.new_token_address : formData.token_address;
+    if (!isValidWalletAddress(addr)) {
       setTokenFetchError('Enter a valid token address first');
       return;
     }
     setFetchingToken(true);
     setTokenFetchError(null);
     try {
-      const details = await fetchTokenDetailsFromHelius(formData.token_address);
-      setFormData(prev => ({
-        ...prev,
-        token_symbol: details.symbol,
-        token_decimals: details.decimals.toString()
-      }));
+      const details = await fetchTokenDetailsFromHelius(addr);
+      if (tokenMode === 'new') {
+        setFormData(prev => ({
+          ...prev,
+          new_token_symbol: details.symbol,
+          new_token_decimals: details.decimals.toString()
+        }));
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          token_symbol: details.symbol,
+          token_decimals: details.decimals.toString()
+        }));
+      }
     } catch (err) {
       setTokenFetchError(err.message || 'Could not fetch token details');
     } finally {
@@ -108,20 +132,32 @@ const RewardsManager = () => {
     e.preventDefault();
 
     try {
-      // Validate inputs
       if (!formData.collection_id) {
         setError('Please select a collection');
         return;
       }
 
-      if (!isValidWalletAddress(formData.token_address)) {
-        setError('Invalid token address');
-        return;
-      }
-
-      if (!formData.token_symbol) {
-        setError('Token symbol is required');
-        return;
+      let tokenAddress, tokenSymbol, tokenDecimals;
+      if (tokenMode === 'new') {
+        if (!isValidWalletAddress(formData.new_token_address)) {
+          setError('Invalid token address');
+          return;
+        }
+        if (!formData.new_token_symbol) {
+          setError('Token symbol is required');
+          return;
+        }
+        tokenAddress = formData.new_token_address;
+        tokenSymbol = formData.new_token_symbol.toUpperCase();
+        tokenDecimals = formData.new_token_decimals || '9';
+      } else {
+        if (!formData.token_address) {
+          setError('Please select a token');
+          return;
+        }
+        tokenAddress = formData.token_address;
+        tokenSymbol = formData.token_symbol;
+        tokenDecimals = formData.token_decimals || '9';
       }
 
       if (!isValidAmount(formData.daily_rate)) {
@@ -134,36 +170,34 @@ const RewardsManager = () => {
 
       const rewardData = {
         collection_id: formData.collection_id,
-        token_address: formData.token_address,
-        token_symbol: formData.token_symbol,
-        token_decimals: formData.token_decimals,
+        token_address: tokenAddress,
+        token_symbol: tokenSymbol,
+        token_decimals: tokenDecimals,
         daily_rate: parseFloat(formData.daily_rate)
       };
 
       if (editMode) {
-        // Update reward
         await api.admin.updateReward(editId, rewardData);
         setSuccess('Reward updated successfully');
       } else {
-        // Add new reward
         await api.admin.addReward(rewardData);
         setSuccess('Reward added successfully');
       }
 
-      // Reset form
       setFormData({
         collection_id: '',
         token_address: '',
         token_symbol: '',
         token_decimals: '9',
-        daily_rate: '1'
+        daily_rate: '1',
+        new_token_address: '',
+        new_token_symbol: '',
+        new_token_decimals: '9',
       });
-
+      setTokenMode('existing');
       setShowForm(false);
       setEditMode(false);
       setEditId(null);
-
-      // Reload data
       loadData();
     } catch (error) {
       console.error('Error saving reward:', error);
@@ -180,9 +214,12 @@ const RewardsManager = () => {
       token_address: reward.token_address,
       token_symbol: reward.token_symbol,
       token_decimals: reward.token_decimals,
-      daily_rate: reward.daily_rate
+      daily_rate: reward.daily_rate,
+      new_token_address: '',
+      new_token_symbol: '',
+      new_token_decimals: '9',
     });
-
+    setTokenMode('existing');
     setEditMode(true);
     setEditId(reward.id);
     setShowForm(true);
@@ -243,12 +280,16 @@ const RewardsManager = () => {
             setShowForm(!showForm);
             setEditMode(false);
             setEditId(null);
+            setTokenMode('existing');
             setFormData({
               collection_id: '',
               token_address: '',
               token_symbol: '',
               token_decimals: '9',
-              daily_rate: '1'
+              daily_rate: '1',
+              new_token_address: '',
+              new_token_symbol: '',
+              new_token_decimals: '9',
             });
           }}
           className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -339,62 +380,88 @@ const RewardsManager = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Token Address
+                  Token
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setTokenMode('existing')}
+                    className={`px-3 py-1 text-sm rounded-md border ${tokenMode === 'existing' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    Select existing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTokenMode('new')}
+                    className={`px-3 py-1 text-sm rounded-md border ${tokenMode === 'new' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    Add new token
+                  </button>
+                </div>
+
+                {tokenMode === 'existing' ? (
+                  <select
                     name="token_address"
                     value={formData.token_address}
                     onChange={handleInputChange}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Enter token mint address"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={handleFetchToken}
-                    disabled={fetchingToken}
-                    className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    disabled={allTokens.length === 0}
                   >
-                    {fetchingToken ? '...' : 'Fetch'}
-                  </button>
-                </div>
-                {tokenFetchError && (
-                  <p className="mt-1 text-xs text-red-500">{tokenFetchError}</p>
+                    {allTokens.length === 0
+                      ? <option value="">No tokens configured yet — add a new token</option>
+                      : <>
+                          <option value="">Select a token</option>
+                          {allTokens.map(t => (
+                            <option key={t.token_address} value={t.token_address}>{t.token_symbol}</option>
+                          ))}
+                        </>
+                    }
+                  </select>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        name="new_token_address"
+                        value={formData.new_token_address}
+                        onChange={handleInputChange}
+                        placeholder="Token mint address"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleFetchToken}
+                        disabled={fetchingToken}
+                        className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {fetchingToken ? '...' : 'Fetch'}
+                      </button>
+                    </div>
+                    {tokenFetchError && (
+                      <p className="text-xs text-red-500">{tokenFetchError}</p>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        name="new_token_symbol"
+                        value={formData.new_token_symbol}
+                        onChange={handleInputChange}
+                        placeholder="Symbol (e.g. EMPIRE)"
+                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                      <input
+                        type="number"
+                        name="new_token_decimals"
+                        value={formData.new_token_decimals}
+                        onChange={handleInputChange}
+                        min="0"
+                        max="18"
+                        placeholder="Decimals"
+                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
                 )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Token Symbol
-                  </label>
-                  <input
-                    type="text"
-                    name="token_symbol"
-                    value={formData.token_symbol}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Token Decimals
-                  </label>
-                  <input
-                    type="number"
-                    name="token_decimals"
-                    value={formData.token_decimals}
-                    onChange={handleInputChange}
-                    min="0"
-                    max="18"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    required
-                  />
-                </div>
               </div>
 
               <div>
