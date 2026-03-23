@@ -54,19 +54,34 @@ const TraitManager = () => {
   useEffect(() => {
     if (formData.collection_id) {
       const id = parseInt(formData.collection_id);
-      const tokens = rewards.filter(r => r.collection_id === id);
-      setCollectionTokens(tokens);
-      if (tokens.length > 0 && !tokens.find(t => t.token_address === formData.token_address)) {
+      // Tokens from collection_rewards
+      const fromRewards = rewards.filter(r => r.collection_id === id).map(r => ({
+        token_address: r.token_address,
+        token_symbol: r.token_symbol,
+      }));
+      // Tokens seen in existing trait rewards for this collection
+      const fromTraitRewards = traitRewards
+        .filter(tr => tr.collection_id === id)
+        .map(tr => ({ token_address: tr.token_address, token_symbol: tr.token_symbol }));
+      // Merge, dedupe by token_address
+      const seen = new Set();
+      const merged = [...fromRewards, ...fromTraitRewards].filter(t => {
+        if (seen.has(t.token_address)) return false;
+        seen.add(t.token_address);
+        return true;
+      });
+      setCollectionTokens(merged);
+      if (merged.length > 0 && !merged.find(t => t.token_address === formData.token_address)) {
         setFormData(prev => ({
           ...prev,
-          token_address: tokens[0].token_address,
-          token_symbol: tokens[0].token_symbol,
+          token_address: merged[0].token_address,
+          token_symbol: merged[0].token_symbol,
         }));
       }
     } else {
       setCollectionTokens([]);
     }
-  }, [formData.collection_id, rewards]);
+  }, [formData.collection_id, rewards, traitRewards]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -115,6 +130,7 @@ const TraitManager = () => {
       new_token_address: '', new_token_symbol: '',
     });
     setTokenMode('existing');
+    setTokenFetchError(null);
     setEditMode(false);
     setEditId(null);
     setShowForm(false);
