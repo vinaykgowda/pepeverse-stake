@@ -70,6 +70,7 @@ function parseHashlist(hashlistString) {
   }
 
   // Support JSON array format: ["addr1", "addr2", ...]
+  // Works whether the JSON is on one line or pretty-printed (one address per line)
   const trimmed = hashlistString.trim();
   if (trimmed.startsWith('[')) {
     try {
@@ -79,7 +80,13 @@ function parseHashlist(hashlistString) {
       }
       hashlistString = parsed.join('\n');
     } catch (e) {
-      return { success: false, addresses: [], errors: ['Invalid JSON array format'] };
+      // Pretty-printed JSON that failed to parse as a whole — strip JSON punctuation per line
+      // e.g. lines like:  "JD9LHRg...",  or  "JD9LHRg..."
+      hashlistString = hashlistString
+        .split('\n')
+        .map(l => l.trim().replace(/^"/, '').replace(/",?$/, '').replace(/"$/, '').trim())
+        .filter(l => l.length > 0 && l !== '[' && l !== ']')
+        .join('\n');
     }
   }
 
