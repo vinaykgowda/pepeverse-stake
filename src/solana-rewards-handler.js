@@ -107,15 +107,15 @@ async function calculateRewards(walletAddress) {
 
         console.log(`📈 [REWARDS] NFT ${nft.mint_address}: ${daysSinceLastClaim.toFixed(6)} days since last claim, base reward: ${reward}`);
 
-        // Apply trait multipliers if applicable
-        // Parse trait multipliers from the aggregated string
-        const traitMultipliers = {};
+        // Apply trait flat earn amounts if applicable
+        // Each matching trait adds its own flat daily earn amount (not a multiplier)
+        const traitEarnAmounts = {};
         if (nft.trait_multipliers) {
-          const multiplierPairs = nft.trait_multipliers.split('||');
-          for (const pair of multiplierPairs) {
-            const [traitType, traitValue, multiplier] = pair.split(':');
+          const pairs = nft.trait_multipliers.split('||');
+          for (const pair of pairs) {
+            const [traitType, traitValue, earnAmount] = pair.split(':');
             const key = `${traitType}:${traitValue}`;
-            traitMultipliers[key] = parseFloat(multiplier);
+            traitEarnAmounts[key] = parseFloat(earnAmount);
           }
         }
 
@@ -126,9 +126,10 @@ async function calculateRewards(walletAddress) {
           for (const trait of traits) {
             if (trait && typeof trait === 'object' && trait.trait_type && trait.value) {
               const key = `${trait.trait_type}:${trait.value}`;
-              if (traitMultipliers[key]) {
-                console.log(`🎲 [REWARDS] Applying trait multiplier ${traitMultipliers[key]} for ${trait.trait_type}:${trait.value}`);
-                reward *= traitMultipliers[key];
+              if (traitEarnAmounts[key]) {
+                const traitReward = traitEarnAmounts[key] * daysSinceLastClaim;
+                console.log(`🎲 [REWARDS] Adding trait earn ${traitEarnAmounts[key]}/day for ${trait.trait_type}:${trait.value} = ${traitReward}`);
+                reward += traitReward;
               }
             }
           }

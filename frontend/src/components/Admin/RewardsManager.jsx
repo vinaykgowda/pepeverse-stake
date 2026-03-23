@@ -406,7 +406,7 @@ const RewardsManager = () => {
                   name="daily_rate"
                   value={formData.daily_rate}
                   onChange={handleInputChange}
-                  step="0.000000001"
+                  step="0.01"
                   min="0"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   required
@@ -472,7 +472,7 @@ const RewardsManager = () => {
                       <div className="text-xs text-gray-500">{reward.token_address}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{reward.daily_rate} / day</div>
+                      <div className="text-sm text-gray-900">{parseFloat(reward.daily_rate)} / day</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
