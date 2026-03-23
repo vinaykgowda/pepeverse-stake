@@ -1,49 +1,23 @@
-// api/index.js - Vercel Serverless Entry Point (v3)
+// api/index.js - Vercel Serverless Entry Point
 
 const express = require('express');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 
-// Load environment variables first
 dotenv.config();
 
-// Create Express app
 const app = express();
-
-// Disable x-powered-by header
 app.disable('x-powered-by');
 
-// Basic security headers (simplified for serverless)
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
-
-// Parse JSON and URL-encoded bodies
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Simple health check at root
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'Pepeverse Staking API',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
-  });
-});
+// Health checks
+app.get('/', (req, res) => res.json({ status: 'ok', message: 'Pepeverse Staking API', timestamp: new Date().toISOString() }));
+app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), environment: process.env.NODE_ENV || 'production', database: process.env.DATABASE_URL ? 'configured' : 'not configured' }));
 
-// Health check endpoint
-app.get('/api/v1/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'production',
-    database: process.env.DATABASE_URL ? 'configured' : 'not configured'
-  });
-});
-
-// Database connection pool (lazy initialization)
+// Database pool (lazy init)
 let dbPool = null;
 async function getDbPool() {
   if (!dbPool && process.env.DATABASE_URL) {
@@ -59,70 +33,38 @@ async function getDbPool() {
   return dbPool;
 }
 
-// Middleware to attach db to request
 app.use(async (req, res, next) => {
-  try {
-    req.db = await getDbPool();
-    next();
-  } catch (error) {
-    console.error('Database connection error:', error);
-    next(); // Continue even if DB fails
-  }
+  try { req.db = await getDbPool(); next(); } catch (error) { next(); }
 });
 
-// Load routes dynamically to avoid startup crashes
+// Load routes from backend/routes/ - these have correct internal relative paths
 try {
-  const authRoutes = require('../routes/auth');
-  app.use('/api/v1/auth', authRoutes);
-} catch (error) {
-  console.error('Failed to load auth routes:', error.message);
-}
+  app.use('/api/v1/auth', require('../routes/auth'));
+} catch (e) { console.error('Failed to load auth routes:', e.message); }
 
 try {
-  const heliusRoutes = require('../routes/helius');
-  app.use('/api/v1/helius', heliusRoutes);
-} catch (error) {
-  console.error('Failed to load helius routes:', error.message);
-}
+  app.use('/api/v1/helius', require('../routes/helius'));
+} catch (e) { console.error('Failed to load helius routes:', e.message); }
 
 try {
-  const adminRoutes = require('../routes/admin');
-  app.use('/api/v1/admin', adminRoutes);
-} catch (error) {
-  console.error('Failed to load admin routes:', error.message);
-}
+  app.use('/api/v1/admin', require('../backend/routes/admin'));
+} catch (e) { console.error('Failed to load admin routes:', e.message); }
 
 try {
-  const userRoutes = require('../routes/user');
-  app.use('/api/v1/user', userRoutes);
-} catch (error) {
-  console.error('Failed to load user routes:', error.message);
-}
+  app.use('/api/v1/user', require('../backend/routes/user'));
+} catch (e) { console.error('Failed to load user routes:', e.message); }
 
 try {
-  const apiRoutes = require('../src/solana-api-endpoints');
-  app.use('/api/v1', apiRoutes);
-} catch (error) {
-  console.error('Failed to load API routes:', error.message);
-}
+  app.use('/api/v1', require('../src/solana-api-endpoints'));
+} catch (e) { console.error('Failed to load API routes:', e.message); }
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ 
-    error: 'Not Found',
-    path: req.path,
-    message: 'The requested endpoint does not exist'
-  });
-});
+// 404
+app.use((req, res) => res.status(404).json({ error: 'Not Found', path: req.path, message: 'The requested endpoint does not exist' }));
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(err.status || 500).json({ 
-    error: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+  res.status(err.status || 500).json({ error: err.message || 'Internal Server Error' });
 });
 
-// Export for Vercel serverless
 module.exports = app;
