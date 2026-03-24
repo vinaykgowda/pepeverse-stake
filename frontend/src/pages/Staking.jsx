@@ -91,7 +91,7 @@ const Staking = () => {
 
   if (!connected) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#0a0f0a] flex items-center justify-center">
         <div className="max-w-md w-full">
           <WalletConnect />
         </div>
@@ -100,14 +100,15 @@ const Staking = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#0a0f0a]">
+      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">NFT Staking</h1>
-          <p className="mt-2 text-gray-600">
-            Stake your NFTs to earn rewards
-          </p>
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-4xl">🐸</span>
+            <h1 className="text-3xl font-bold text-green-400 tracking-tight">NFT Staking</h1>
+          </div>
+          <p className="text-green-700 ml-14">Stake your Pepe Gods and earn rewards</p>
         </div>
 
         {/* Stats Section */}
@@ -115,28 +116,28 @@ const Staking = () => {
           <StakingStats />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left side - NFT Management with Tabs */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="bg-[#111a11] border border-[#1e3a1e] rounded-xl shadow-[0_0_30px_rgba(34,197,94,0.08)] p-6">
               {/* Tab Navigation */}
-              <div className="flex space-x-1 bg-gray-100 rounded-lg p-1 mb-6">
+              <div className="flex space-x-1 bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-1 mb-6">
                 <button
                   onClick={() => handleTabChange('wallet')}
-                  className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                  className={`flex-1 py-2 px-4 text-sm font-semibold rounded-lg transition-all ${
                     activeTab === 'wallet'
-                      ? 'bg-white text-indigo-700 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700'
+                      ? 'bg-green-500 text-black shadow-[0_0_15px_rgba(34,197,94,0.4)]'
+                      : 'text-green-700 hover:text-green-400'
                   }`}
                 >
                   Available ({unstakedNFTs.length})
                 </button>
                 <button
                   onClick={() => handleTabChange('staked')}
-                  className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                  className={`flex-1 py-2 px-4 text-sm font-semibold rounded-lg transition-all ${
                     activeTab === 'staked'
-                      ? 'bg-white text-indigo-700 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700'
+                      ? 'bg-green-500 text-black shadow-[0_0_15px_rgba(34,197,94,0.4)]'
+                      : 'text-green-700 hover:text-green-400'
                   }`}
                 >
                   Staked ({stakedNFTs.length})
@@ -148,7 +149,7 @@ const Staking = () => {
                 <select
                   value={collectionFilter}
                   onChange={(e) => setCollectionFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="px-3 py-2 bg-[#0d1a0d] border border-[#1e3a1e] text-green-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-700 focus:border-green-600 text-sm"
                 >
                   <option value="">All Collections</option>
                   {collections.map((collection) => (
@@ -159,13 +160,13 @@ const Staking = () => {
                 </select>
 
                 {selectedNFTs.length > 0 && (
-                  <div className="text-sm text-gray-500">
+                  <div className="text-xs text-green-600 bg-green-950/50 border border-green-800 px-3 py-1 rounded-full">
                     {selectedNFTs.length} NFT{selectedNFTs.length !== 1 ? 's' : ''} selected
                   </div>
                 )}
               </div>
 
-              {/* NFT Display with proper filtering */}
+              {/* NFT Display */}
               <NFTDisplay
                 nfts={activeTab === 'wallet' ? unstakedNFTs : stakedNFTs}
                 stakedNFTs={stakedNFTs}
@@ -181,7 +182,6 @@ const Staking = () => {
 
           {/* Right side - Actions */}
           <div className="space-y-6">
-            {/* Staking Panel - only show for wallet tab */}
             {activeTab === 'wallet' && (
               <StakingPanel
                 selectedNFTs={selectedNFTs}
@@ -193,7 +193,6 @@ const Staking = () => {
               />
             )}
 
-            {/* Unstaking Panel - only show for staked tab */}
             {activeTab === 'staked' && (
               <UnstakingPanel
                 selectedNFTs={selectedNFTs}
@@ -203,7 +202,6 @@ const Staking = () => {
               />
             )}
 
-            {/* Rewards Panel */}
             <RewardsPanel />
           </div>
         </div>
@@ -282,17 +280,20 @@ const UnstakingPanel = ({
   }, [stakedNFTs]);
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">Unstaking</h3>
+    <div className="bg-[#111a11] border border-[#1e3a1e] rounded-xl shadow-[0_0_30px_rgba(34,197,94,0.1)] p-6">
+      <div className="flex items-center gap-2 mb-5">
+        <span className="text-xl">🔓</span>
+        <h3 className="text-lg font-semibold text-green-400 tracking-wide">Unstaking</h3>
+      </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <div className="bg-red-950/60 border border-red-700 text-red-400 px-4 py-3 rounded-xl mb-4">
           <div className="flex justify-between items-start">
             <div className="flex-1">
-              <p className="font-medium mb-1">Unstake Failed</p>
+              <p className="font-semibold mb-1 text-red-300">Unstake Failed</p>
               <p className="text-sm">{error}</p>
             </div>
-            <button onClick={clearMessages} className="ml-4 text-red-700 hover:text-red-900">
+            <button onClick={clearMessages} className="ml-4 text-red-500 hover:text-red-300 transition-colors">
               <span className="sr-only">Close</span>
               <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -300,10 +301,7 @@ const UnstakingPanel = ({
             </button>
           </div>
           {!showConfirm && selectedNFTs.length > 0 && (
-            <button
-              onClick={handleUnstake}
-              className="mt-3 text-sm font-medium text-red-700 hover:text-red-900 underline"
-            >
+            <button onClick={handleUnstake} className="mt-3 text-sm font-medium text-red-400 hover:text-red-300 underline">
               Try again
             </button>
           )}
@@ -311,9 +309,9 @@ const UnstakingPanel = ({
       )}
 
       {success && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 relative">
+        <div className="bg-green-950/60 border border-green-700 text-green-400 px-4 py-3 rounded-xl mb-4 relative">
           <span className="block sm:inline">{success}</span>
-          <button onClick={clearMessages} className="absolute top-0 bottom-0 right-0 px-4 py-3">
+          <button onClick={clearMessages} className="absolute top-0 bottom-0 right-0 px-4 py-3 text-green-500 hover:text-green-300">
             <span className="sr-only">Close</span>
             <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -322,31 +320,33 @@ const UnstakingPanel = ({
         </div>
       )}
 
-      <div className="mb-4">
-        <div className="flex justify-between items-center mb-1">
-          <span className="text-sm font-medium text-gray-700">Selected NFTs</span>
-          <span className="text-sm text-gray-500">{selectedNFTs.length} selected</span>
+      <div className="mb-5">
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-xs font-semibold text-green-600 uppercase tracking-widest">Selected NFTs</span>
+          <span className="text-xs text-green-700 bg-green-950/50 border border-green-800 px-2 py-0.5 rounded-full">
+            {selectedNFTs.length} selected
+          </span>
         </div>
-        <div className="p-3 border border-gray-300 rounded-md bg-gray-50 min-h-[100px] max-h-[200px] overflow-y-auto">
+        <div className="p-3 border border-[#1e3a1e] rounded-xl bg-[#0d1a0d] min-h-[100px] max-h-[200px] overflow-y-auto">
           {selectedNFTs.length > 0 ? (
             <div className="space-y-1">
               {selectedNFTs.map((nftId) => (
                 <div
                   key={nftId}
-                  className="flex justify-between items-center px-2 py-1 bg-white border border-gray-200 rounded text-xs"
+                  className="flex justify-between items-center px-3 py-1.5 bg-[#111a11] border border-[#1e3a1e] rounded-lg text-xs hover:border-green-700 transition-colors"
                 >
-                  <span className="font-medium text-gray-900 truncate">
+                  <span className="font-medium text-green-300 truncate">
                     {getNFTName(nftId)}
                   </span>
-                  <span className="text-gray-500 ml-2">
+                  <span className="text-green-700 ml-2">
                     ID: {nftId}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-sm text-gray-500">No staked NFTs selected</p>
+            <div className="flex items-center justify-center h-full min-h-[80px]">
+              <p className="text-sm text-green-800">No staked NFTs selected</p>
             </div>
           )}
         </div>
@@ -355,7 +355,7 @@ const UnstakingPanel = ({
       <button
         onClick={handleUnstake}
         disabled={loading || selectedNFTs.length === 0 || processing}
-        className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-red-300 disabled:cursor-not-allowed"
+        className="w-full py-3 px-4 rounded-xl text-sm font-bold text-black bg-red-500 hover:bg-red-400 transition-all shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] disabled:bg-red-950 disabled:text-red-800 disabled:shadow-none disabled:cursor-not-allowed"
       >
         {processing ? 'Processing...' : `Unstake ${selectedNFTs.length} NFTs`}
       </button>
@@ -363,31 +363,30 @@ const UnstakingPanel = ({
       {/* Confirmation Modal */}
       {showConfirm && (
         <div className="fixed inset-0 overflow-y-auto z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black bg-opacity-50"></div>
+          <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm"></div>
 
-          <div className="relative bg-white rounded-lg max-w-md w-full mx-auto p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Confirm Unstaking</h3>
+          <div className="relative bg-[#111a11] border border-[#1e3a1e] rounded-2xl shadow-[0_0_60px_rgba(34,197,94,0.2)] max-w-md w-full mx-auto p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <span className="text-xl">🔓</span>
+              <h3 className="text-lg font-semibold text-green-400">Confirm Unstaking</h3>
+            </div>
 
             {processing ? (
-              /* Loading State */
               <div className="mb-4">
                 <div className="flex flex-col items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-red-600 mb-4"></div>
-                  <p className="text-lg font-medium text-gray-900 mb-2">{transactionStatus}</p>
+                  <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-red-500 mb-4"></div>
+                  <p className="text-lg font-medium text-green-300 mb-2">{transactionStatus}</p>
                   {estimatedTime > 0 && (
-                    <p className="text-sm text-gray-500">
-                      Estimated time: ~{estimatedTime} seconds
-                    </p>
+                    <p className="text-sm text-green-700">Estimated time: ~{estimatedTime} seconds</p>
                   )}
-                  <p className="text-xs text-gray-400 mt-4 text-center">
+                  <p className="text-xs text-green-800 mt-4 text-center">
                     Please do not close this window or refresh the page
                   </p>
                 </div>
               </div>
             ) : (
-              /* Confirmation State */
-              <div className="mb-4">
-                <p className="text-sm text-gray-500 mb-3">
+              <div className="mb-5">
+                <p className="text-sm text-gray-400 mb-3">
                   You are about to unstake {selectedNFTs.length} NFT{selectedNFTs.length !== 1 ? 's' : ''}.
                 </p>
                 <p className="text-sm text-gray-500">
@@ -400,7 +399,7 @@ const UnstakingPanel = ({
               <button
                 onClick={() => setShowConfirm(false)}
                 disabled={processing}
-                className="py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="py-2 px-5 border border-[#1e3a1e] rounded-xl text-sm font-medium text-gray-400 bg-[#0d1a0d] hover:border-green-700 hover:text-green-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
@@ -408,15 +407,15 @@ const UnstakingPanel = ({
               <button
                 onClick={handleConfirmUnstake}
                 disabled={processing}
-                className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-red-300 disabled:cursor-not-allowed"
+                className="py-2 px-5 rounded-xl text-sm font-bold text-black bg-red-500 hover:bg-red-400 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] disabled:bg-red-950 disabled:text-red-800 disabled:shadow-none disabled:cursor-not-allowed"
               >
                 {processing ? (
                   <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-black mr-2"></div>
                     <span>Processing...</span>
                   </div>
                 ) : (
-                  `Confirm Unstaking`
+                  'Confirm Unstaking'
                 )}
               </button>
             </div>

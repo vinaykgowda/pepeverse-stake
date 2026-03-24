@@ -280,30 +280,30 @@ const StakingPanel = ({
   }, [walletNFTs]); // Memoize with walletNFTs dependency
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">Staking</h3>
+    <div className="bg-[#111a11] border border-[#1e3a1e] rounded-xl shadow-[0_0_30px_rgba(34,197,94,0.1)] p-6">
+      <div className="flex items-center gap-2 mb-5">
+        <span className="text-xl">🐸</span>
+        <h3 className="text-lg font-semibold text-green-400 tracking-wide">Staking</h3>
+      </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <div className="bg-red-950/60 border border-red-700 text-red-400 px-4 py-3 rounded-xl mb-4">
           <div className="flex justify-between items-start">
             <div className="flex-1">
-              <p className="font-medium mb-1">Transaction Failed</p>
+              <p className="font-semibold mb-1 text-red-300">Transaction Failed</p>
               <p className="text-sm">{error}</p>
               {transactionSignature && (
                 <a
                   href={networkConfig.getTransactionUrl(transactionSignature)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-red-800 hover:text-red-900 underline mt-2 inline-block"
+                  className="text-sm text-red-400 hover:text-red-300 underline mt-2 inline-block"
                 >
                   View failed transaction
                 </a>
               )}
             </div>
-            <button
-              onClick={clearMessages}
-              className="ml-4 text-red-700 hover:text-red-900"
-            >
+            <button onClick={clearMessages} className="ml-4 text-red-500 hover:text-red-300 transition-colors">
               <span className="sr-only">Close</span>
               <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -311,10 +311,7 @@ const StakingPanel = ({
             </button>
           </div>
           {!showConfirm && selectedNFTs.length > 0 && (
-            <button
-              onClick={handleStake}
-              className="mt-3 text-sm font-medium text-red-700 hover:text-red-900 underline"
-            >
+            <button onClick={handleStake} className="mt-3 text-sm font-medium text-red-400 hover:text-red-300 underline">
               Try again
             </button>
           )}
@@ -322,12 +319,9 @@ const StakingPanel = ({
       )}
 
       {success && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 relative">
+        <div className="bg-green-950/60 border border-green-700 text-green-400 px-4 py-3 rounded-xl mb-4 relative">
           <span className="block sm:inline">{success}</span>
-          <button
-            onClick={clearMessages}
-            className="absolute top-0 bottom-0 right-0 px-4 py-3"
-          >
+          <button onClick={clearMessages} className="absolute top-0 bottom-0 right-0 px-4 py-3 text-green-500 hover:text-green-300">
             <span className="sr-only">Close</span>
             <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -336,57 +330,57 @@ const StakingPanel = ({
         </div>
       )}
 
-      <div className="mb-4">
-        <div className="flex justify-between items-center mb-1">
-          <span className="text-sm font-medium text-gray-700">Selected NFTs</span>
-          <span className="text-sm text-gray-500">{selectedNFTs.length} selected</span>
+      {/* Selected NFTs */}
+      <div className="mb-5">
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-xs font-semibold text-green-600 uppercase tracking-widest">Selected NFTs</span>
+          <span className="text-xs text-green-700 bg-green-950/50 border border-green-800 px-2 py-0.5 rounded-full">
+            {selectedNFTs.length} selected
+          </span>
         </div>
-        <div className="p-3 border border-gray-300 rounded-md bg-gray-50 min-h-[100px] max-h-[200px] overflow-y-auto">
+        <div className="p-3 border border-[#1e3a1e] rounded-xl bg-[#0d1a0d] min-h-[100px] max-h-[200px] overflow-y-auto">
           {selectedNFTs.length > 0 ? (
             <div className="space-y-1">
               {selectedNFTs.map((mintAddress) => (
                 <div
                   key={mintAddress}
-                  className="flex justify-between items-center px-2 py-1 bg-white border border-gray-200 rounded text-xs"
+                  className="flex justify-between items-center px-3 py-1.5 bg-[#111a11] border border-[#1e3a1e] rounded-lg text-xs hover:border-green-700 transition-colors"
                 >
-                  <span className="font-medium text-gray-900 truncate">
+                  <span className="font-medium text-green-300 truncate">
                     {getNFTName(mintAddress)}
                   </span>
-                  <span className="text-gray-500 ml-2 font-mono">
+                  <span className="text-green-700 ml-2 font-mono">
                     {mintAddress.substr(0, 4)}...{mintAddress.substr(-4)}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-sm text-gray-500">No NFTs selected</p>
+            <div className="flex items-center justify-center h-full min-h-[80px]">
+              <p className="text-sm text-green-800">No NFTs selected</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Fee Information */}
+      {/* Fee Breakdown */}
       {Object.keys(nftsByCollection).length > 0 && (
-        <div className="mb-6">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Fee Breakdown</h4>
+        <div className="mb-5 bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4">
+          <h4 className="text-xs font-semibold text-green-600 uppercase tracking-widest mb-3">Fee Breakdown</h4>
           <div className="space-y-2">
             {Object.values(nftsByCollection).map((group) => (
               <div key={group.collection.id} className="flex justify-between items-center text-sm">
-                <span className="text-gray-600">
+                <span className="text-gray-400">
                   {group.collection.name} ({group.nfts.length} NFT{group.nfts.length !== 1 ? 's' : ''})
                 </span>
-                <span className="font-medium text-gray-900">
+                <span className="font-medium text-green-400">
                   {formatSol(group.stakeFee * group.nfts.length)} SOL
                 </span>
               </div>
             ))}
-            <div className="border-t border-gray-200 pt-2 mt-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-700">Total Fee</span>
-                <span className="text-sm font-bold text-gray-900">{formatSol(totalFee)} SOL</span>
-              </div>
-
+            <div className="border-t border-[#1e3a1e] pt-2 mt-2 flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-300">Total Fee</span>
+              <span className="text-sm font-bold text-green-300">{formatSol(totalFee)} SOL</span>
             </div>
           </div>
         </div>
@@ -395,7 +389,7 @@ const StakingPanel = ({
       <button
         onClick={handleStake}
         disabled={loading || selectedNFTs.length === 0 || processing}
-        className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300"
+        className="w-full py-3 px-4 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_20px_rgba(34,197,94,0.3)] hover:shadow-[0_0_30px_rgba(34,197,94,0.5)] disabled:bg-green-900 disabled:text-green-700 disabled:shadow-none disabled:cursor-not-allowed"
       >
         {processing ? 'Processing...' : `Stake ${selectedNFTs.length} NFTs${totalFee > 0 ? ` (${formatSol(totalFee)} SOL)` : ''}`}
       </button>
@@ -403,57 +397,55 @@ const StakingPanel = ({
       {/* Confirmation Modal */}
       {showConfirm && (
         <div className="fixed inset-0 overflow-y-auto z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black bg-opacity-50"></div>
+          <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm"></div>
 
-          <div className="relative bg-white rounded-lg max-w-md w-full mx-auto p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Confirm Staking</h3>
+          <div className="relative bg-[#111a11] border border-[#1e3a1e] rounded-2xl shadow-[0_0_60px_rgba(34,197,94,0.2)] max-w-md w-full mx-auto p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <span className="text-xl">🐸</span>
+              <h3 className="text-lg font-semibold text-green-400">Confirm Staking</h3>
+            </div>
 
             {processing ? (
-              /* Loading State */
               <div className="mb-4">
                 <div className="flex flex-col items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
-                  <p className="text-lg font-medium text-gray-900 mb-2">{transactionStatus}</p>
+                  <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-green-500 mb-4"></div>
+                  <p className="text-lg font-medium text-green-300 mb-2">{transactionStatus}</p>
                   {estimatedTime > 0 && (
-                    <p className="text-sm text-gray-500">
-                      Estimated time: ~{estimatedTime} seconds
-                    </p>
+                    <p className="text-sm text-green-700">Estimated time: ~{estimatedTime} seconds</p>
                   )}
-                  <p className="text-xs text-gray-400 mt-4 text-center">
+                  <p className="text-xs text-green-800 mt-4 text-center">
                     Please do not close this window or refresh the page
                   </p>
                 </div>
               </div>
             ) : (
-              /* Confirmation State */
-              <div className="mb-4">
-                <p className="text-sm text-gray-500 mb-3">
-                  You are about to stake {selectedNFTs.length} NFTs.
+              <div className="mb-5">
+                <p className="text-sm text-gray-400 mb-4">
+                  You are about to stake {selectedNFTs.length} NFT{selectedNFTs.length !== 1 ? 's' : ''}.
                 </p>
 
                 {totalFee > 0 && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
-                    <h4 className="text-sm font-medium text-yellow-800 mb-2">Payment Required</h4>
-                    <div className="text-xs text-yellow-700 space-y-1">
+                  <div className="bg-[#0d1a0d] border border-green-800 rounded-xl p-4 mb-4">
+                    <h4 className="text-xs font-semibold text-green-500 uppercase tracking-widest mb-3">Payment Required</h4>
+                    <div className="text-xs text-gray-400 space-y-2">
                       {Object.values(nftsByCollection).map((group) => (
                         <div key={group.collection.id} className="flex justify-between">
                           <span>{group.collection.name}:</span>
-                          <span>{formatSol(group.stakeFee * group.nfts.length)} SOL</span>
+                          <span className="text-green-400">{formatSol(group.stakeFee * group.nfts.length)} SOL</span>
                         </div>
                       ))}
-                      <div className="flex justify-between font-medium pt-1 border-t border-yellow-300">
+                      <div className="flex justify-between font-semibold pt-2 border-t border-[#1e3a1e] text-green-300">
                         <span>Total Fee:</span>
                         <span>{formatSol(totalFee)} SOL</span>
                       </div>
-
                     </div>
                   </div>
                 )}
 
                 <p className="text-sm text-gray-500">
                   {totalFee > 0
-                    ? 'You will be prompted to approve the payment transaction first, then the staking will complete automatically.'
-                    : 'This operation is free. Are you sure you want to continue?'
+                    ? 'You will be prompted to approve the payment transaction first, then staking completes automatically.'
+                    : 'This operation is free. Ready to stake?'
                   }
                 </p>
               </div>
@@ -463,7 +455,7 @@ const StakingPanel = ({
               <button
                 onClick={handleCancel}
                 disabled={processing}
-                className="py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="py-2 px-5 border border-[#1e3a1e] rounded-xl text-sm font-medium text-gray-400 bg-[#0d1a0d] hover:border-green-700 hover:text-green-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
@@ -471,11 +463,11 @@ const StakingPanel = ({
               <button
                 onClick={handleConfirmStake}
                 disabled={processing}
-                className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300 disabled:cursor-not-allowed"
+                className="py-2 px-5 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] disabled:bg-green-900 disabled:text-green-700 disabled:shadow-none disabled:cursor-not-allowed"
               >
                 {processing ? (
                   <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-black mr-2"></div>
                     <span>Processing...</span>
                   </div>
                 ) : (

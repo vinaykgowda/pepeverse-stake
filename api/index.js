@@ -377,6 +377,122 @@ stakingRouter.get('/collections', async (req, res) => {
   } catch (e) { console.error('[collections]', e.message); res.status(500).json({ success: false, message: 'Failed to get collections' }); }
 });
 
+// POST /api/v1/nfts/stake/quote — fee calculation (must be before /nfts/stake)
+stakingRouter.post('/nfts/stake/quote', verifyJWT, async (req, res) => {
+  try {
+    const { nfts, collectionId } = req.body;
+    if (!nfts || !Array.isArray(nfts) || nfts.length === 0 || !collectionId) {
+      return res.status(400).json({ success: false, message: 'Invalid request parameters' });
+    }
+    const pool = getPool();
+    const colResult = await pool.query('SELECT id, name, stake_fee FROM collections WHERE id = $1', [collectionId]);
+    if (colResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Collection not found' });
+    const collection = colResult.rows[0];
+    const stakeFee = parseFloat(collection.stake_fee) || 0;
+    const totalFee = stakeFee * nfts.length;
+    const feeRow = await pool.query("SELECT value FROM settings WHERE key_name = 'rewards_wallet'");
+    const feeRecipient = feeRow.rows[0]?.value || null;
+    if (stakeFee > 0 && !feeRecipient) {
+      return res.status(500).json({ success: false, message: 'Fee recipient wallet not configured' });
+    }
+    return res.json({
+      success: true,
+      data: { collectionId: collection.id, collectionName: collection.name, nftCount: nfts.length, feePerNFT: stakeFee, totalFee, feeRecipient, currency: 'SOL', requiresPayment: totalFee > 0 }
+    });
+  } catch (e) { console.error('[nfts/stake/quote]', e.message); res.status(500).json({ success: false, message: 'Failed to calculate staking fee' }); }
+});
+
+// POST /api/v1/nfts/stake
+stakingRouter.post('/nfts/stake', verifyJWT, async (req, res) => {
+  try {
+    const { nfts, collectionId, paymentSignature } = req.body;
+    if (!nfts || !Array.isArray(nfts) || nfts.length === 0 || !collectionId) {
+      return res.status(400).json({ success: false, message: 'Invalid request parameters' });
+    }
+    const pool = getPool();
+    const colResult = await pool.query('SELECT id, name, stake_fee, hashlist FROM collections WHERE id = $1', [collectionId]);
+    if (colResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Collection not found' });
+
+    const stakedAt = new Date();
+    const inserted = [];
+    for (const nft of nfts) {
+      const { mintAddress, traits } = nft;
+      if (!mintAddress) continue;
+      // Check not already staked
+      const existing = await pool.query('SELECT id FROM staked_nfts WHERE mint_address = $1', [mintAddress]);
+      if (existing.rows.length > 0) continue;
+      const traitsJson = traits ? JSON.stringify(traits) : null;
+      await pool.query(
+        `INSERT INTO staked_nfts (mint_address, owner_wallet, collection_id, stake_timestamp, traits)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [mintAddress, req.user.walletAddress, collectionId, stakedAt, traitsJson]
+      );
+      inserted.push(mintAddress);
+    }
+    return res.json({ success: true, message: `Staked ${inserted.length} NFTs`, data: { staked: inserted } });
+  } catch (e) { console.error('[nfts/stake]', e.message); res.status(500).json({ success: false, message: 'Failed to stake NFTs' }); }
+});
+
+// POST /api/v1/nfts/unstake
+stakingRouter.post('/nfts/unstake', verifyJWT, async (req, res) => {
+  try {
+    const { nftIds } = req.body;
+    if (!nftIds || !Array.isArray(nftIds) || nftIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Invalid request parameters' });
+    }
+    const pool = getPool();
+    const LOCK_MS = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const unstaked = [];
+    for (const id of nftIds) {
+      const result = await pool.query(
+        'SELECT id, stake_timestamp FROM staked_nfts WHERE id = $1 AND owner_wallet = $2',
+        [id, req.user.walletAddress]
+      );
+      if (result.rows.length === 0) continue;
+      const stakeTime = new Date(result.rows[0].stake_timestamp).getTime();
+      if (now - stakeTime < LOCK_MS) {
+        return res.status(400).json({ success: false, message: 'Minimum stake duration of 24 hours not met', code: 'MINIMUM_STAKE_DURATION_NOT_MET' });
+      }
+      await pool.query('DELETE FROM staked_nfts WHERE id = $1', [id]);
+      unstaked.push(id);
+    }
+    return res.json({ success: true, message: `Unstaked ${unstaked.length} NFTs`, data: { unstaked } });
+  } catch (e) { console.error('[nfts/unstake]', e.message); res.status(500).json({ success: false, message: 'Failed to unstake NFTs' }); }
+});
+
+// GET /api/v1/rewards/quote
+stakingRouter.get('/rewards/quote', verifyJWT, async (req, res) => {
+  try {
+    const pool = getPool();
+    const feeRow = await pool.query("SELECT value FROM settings WHERE key_name = 'claim_fee'");
+    const recipientRow = await pool.query("SELECT value FROM settings WHERE key_name = 'rewards_wallet'");
+    const claimFee = parseFloat(feeRow.rows[0]?.value || 0);
+    const feeRecipient = recipientRow.rows[0]?.value || null;
+    return res.json({ success: true, data: { claimFee, feeRecipient, requiresPayment: claimFee > 0 } });
+  } catch (e) { console.error('[rewards/quote]', e.message); res.status(500).json({ success: false, message: 'Failed to get claim quote' }); }
+});
+
+// POST /api/v1/rewards/claim
+stakingRouter.post('/rewards/claim', verifyJWT, async (req, res) => {
+  try {
+    const pool = getPool();
+    const stakedResult = await pool.query(
+      'SELECT id FROM staked_nfts WHERE owner_wallet = $1',
+      [req.user.walletAddress]
+    );
+    if (stakedResult.rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'No staked NFTs found' });
+    }
+    // Update last_claim_timestamp for all staked NFTs
+    await pool.query(
+      'UPDATE staked_nfts SET last_claim_timestamp = NOW() WHERE owner_wallet = $1',
+      [req.user.walletAddress]
+    );
+    return res.json({ success: true, message: 'Rewards claimed successfully' });
+  } catch (e) { console.error('[rewards/claim]', e.message); res.status(500).json({ success: false, message: 'Failed to claim rewards' }); }
+});
+
 // PUT /api/v1/collections/:id — used by FeeManager and CollectionManager (updateCollection in api.js)
 const multer = require('multer');
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
