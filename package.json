@@ -21,6 +21,9 @@
   ],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@metaplex-foundation/js": "^0.19.4",
     "@metaplex-foundation/mpl-token-metadata": "^2.13.0",
