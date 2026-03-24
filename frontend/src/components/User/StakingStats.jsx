@@ -105,10 +105,20 @@ const StakingStats = ({ walletNFTs = [] }) => {
     setClaimError(null);
     try {
       const res = await getClaimQuote();
-      if (res.success) { setClaimQuote(res.data); setShowClaimModal(true); }
-      else setClaimError(res.message);
+      if (res.success) {
+        // Merge already-loaded rewards into the quote so the modal can display them
+        setClaimQuote({
+          rewards: rewards,
+          total_claim_fee: res.data.claimFee ?? res.data.total_claim_fee ?? 0,
+          fee_recipient: res.data.feeRecipient ?? res.data.fee_recipient ?? null,
+          requires_payment: res.data.requiresPayment ?? res.data.requires_payment ?? false,
+        });
+        setShowClaimModal(true);
+      } else {
+        setClaimError(res.message);
+      }
     } catch (e) { setClaimError(e.message); }
-  }, [getClaimQuote]);
+  }, [getClaimQuote, rewards]);
 
   const executeClaimWithPayment = useCallback(async () => {
     try {

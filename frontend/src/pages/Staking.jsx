@@ -63,7 +63,7 @@ const Staking = () => {
       <div className="min-h-screen bg-[#0a0f0a] flex items-center justify-center px-4">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-green-400 tracking-tight mb-2">PEPE GODS STAKING</h1>
+            <h1 className="text-3xl font-bold text-green-400 tracking-tight mb-2">PEPEVERSE STAKING</h1>
             <p className="text-green-700">Connect your wallet to start staking</p>
           </div>
           <WalletConnect />

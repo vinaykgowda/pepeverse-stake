@@ -294,12 +294,7 @@ stakingRouter.get('/nfts/staked', verifyJWT, async (req, res) => {
        WHERE sn.owner_wallet = $1 ORDER BY sn.stake_timestamp DESC`,
       [req.user.walletAddress]
     );
-    const LOCK_MS = 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    const data = result.rows.map(nft => {
-      const remainingMs = Math.max(0, LOCK_MS - (now - new Date(nft.stake_timestamp).getTime()));
-      return { ...nft, remainingLockTimeMs: remainingMs, remainingLockTimeHours: Math.ceil(remainingMs / 3600000), canUnstake: remainingMs === 0 };
-    });
+    const data = result.rows.map(nft => ({ ...nft, canUnstake: true }));
     res.json({ success: true, data });
   } catch (e) { console.error('[nfts/staked]', e.message); res.status(500).json({ success: false, message: 'Failed to get staked NFTs' }); }
 });
@@ -441,19 +436,13 @@ stakingRouter.post('/nfts/unstake', verifyJWT, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid request parameters' });
     }
     const pool = getPool();
-    const LOCK_MS = 24 * 60 * 60 * 1000;
-    const now = Date.now();
     const unstaked = [];
     for (const id of nftIds) {
       const result = await pool.query(
-        'SELECT id, stake_timestamp FROM staked_nfts WHERE id = $1 AND owner_wallet = $2',
+        'SELECT id FROM staked_nfts WHERE id = $1 AND owner_wallet = $2',
         [id, req.user.walletAddress]
       );
       if (result.rows.length === 0) continue;
-      const stakeTime = new Date(result.rows[0].stake_timestamp).getTime();
-      if (now - stakeTime < LOCK_MS) {
-        return res.status(400).json({ success: false, message: 'Minimum stake duration of 24 hours not met', code: 'MINIMUM_STAKE_DURATION_NOT_MET' });
-      }
       await pool.query('DELETE FROM staked_nfts WHERE id = $1', [id]);
       unstaked.push(id);
     }
@@ -469,7 +458,7 @@ stakingRouter.get('/staking/global-stats', async (req, res) => {
               COUNT(sn.id) AS global_staked_count,
               CASE
                 WHEN c.hashlist IS NOT NULL AND c.hashlist != ''
-                THEN (LENGTH(c.hashlist) - LENGTH(REPLACE(c.hashlist, '+' || chr(10), ''))) / 2
+                THEN (LENGTH(c.hashlist) - LENGTH(REPLACE(c.hashlist, chr(10), '')))
                 ELSE 0
               END AS hashlist_count
        FROM collections c
