@@ -244,16 +244,10 @@ const RewardsPanel = () => {
     }
   }, [wallet]);
 
-  // Load rewards on mount — stop polling if first load fails
+  // Load rewards on mount only — no polling
   useEffect(() => {
-    let interval = null;
-    loadRewards().then(ok => {
-      if (ok) {
-        interval = setInterval(loadRewards, 10000);
-      }
-    });
+    loadRewards();
     loadAirdrops();
-    return () => { if (interval) clearInterval(interval); };
   }, [loadRewards, loadAirdrops]);
 
   // Format countdown from seconds remaining
@@ -568,7 +562,7 @@ const RewardsPanel = () => {
       )}
 
       <div className="mt-4 text-xs text-gray-500 text-center">
-        <p>Rewards update automatically every 10 seconds.</p>
+        <p>Rewards are calculated on page load. Click 🔄 to refresh.</p>
         <p>Collection-specific claim fees apply when claiming rewards.</p>
       </div>
 
