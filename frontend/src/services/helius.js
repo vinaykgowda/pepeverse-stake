@@ -116,7 +116,7 @@ class HeliusService {
           if (typeof collection.hashlist === 'string') {
             hashlist = collection.hashlist
               .split('\n')
-              .map(line => line.trim())
+              .map(line => line.trim().replace(/\+$/, ''))
               .filter(line => line.length > 0);
           } else if (Array.isArray(collection.hashlist)) {
             hashlist = collection.hashlist;
