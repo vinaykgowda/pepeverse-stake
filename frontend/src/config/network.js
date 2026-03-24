@@ -28,18 +28,13 @@ class NetworkConfig {
    */
   _validateConfig() {
     if (!this.rpcEndpoint) {
-      throw new Error(
-        'VITE_SOLANA_RPC_URL environment variable is required.\n' +
-        'Please set it in your .env file.'
-      );
+      // Not required anymore — RPC calls are proxied through the backend
+      console.warn('VITE_SOLANA_RPC_URL is not set. RPC calls will be routed through the backend proxy.');
+      this.rpcEndpoint = 'https://api.mainnet-beta.solana.com'; // fallback, not used directly
     }
     
-    // Warn if using devnet
     if (this.rpcEndpoint.includes('devnet')) {
-      console.warn(
-        '⚠️ WARNING: Using devnet RPC endpoint. ' +
-        'For production, set VITE_SOLANA_RPC_URL to a mainnet endpoint.'
-      );
+      console.warn('⚠️ WARNING: Using devnet RPC endpoint.');
     }
   }
   
