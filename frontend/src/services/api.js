@@ -108,7 +108,8 @@ const stakingApi = {
     return api.post('/rewards/claim', payload);
   },
 
-  getTransactionHistory: () => api.get('/transactions')
+  getTransactionHistory: () => api.get('/transactions'),
+  getPerNftEarnings: () => api.get('/rewards/per-nft'),
 };
 
 // Admin API calls

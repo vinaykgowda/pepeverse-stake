@@ -7,12 +7,15 @@ import WalletConnect from '../components/User/WalletConnect';
 import StakeModal from '../components/User/StakeModal';
 import UnstakeModal from '../components/User/UnstakeModal';
 
+import api from '../services/api';
+
 const Staking = () => {
   const { connected, collections, loadUserNFTs, getStakedNFTs } = useWallet();
 
   const [selectedNFTs, setSelectedNFTs] = useState([]);
   const [walletNFTs, setWalletNFTs] = useState([]);
   const [stakedNFTs, setStakedNFTs] = useState([]);
+  const [nftEarnings, setNftEarnings] = useState({});
   const [activeTab, setActiveTab] = useState('wallet');
   const [collectionFilter, setCollectionFilter] = useState('');
   const [loadingNFTs, setLoadingNFTs] = useState(false);
@@ -22,9 +25,14 @@ const Staking = () => {
   const loadNFTs = useCallback(async () => {
     try {
       setLoadingNFTs(true);
-      const [walletData, stakedData] = await Promise.all([loadUserNFTs(), getStakedNFTs()]);
+      const [walletData, stakedData, earningsRes] = await Promise.all([
+        loadUserNFTs(),
+        getStakedNFTs(),
+        api.staking.getPerNftEarnings().then(r => r.data.data).catch(() => ({})),
+      ]);
       setWalletNFTs(walletData || []);
       setStakedNFTs(stakedData || []);
+      setNftEarnings(earningsRes || {});
     } catch (error) {
       console.error('Error loading NFTs:', error);
     } finally {
@@ -155,6 +163,7 @@ const Staking = () => {
             loading={loadingNFTs}
             collections={collections}
             walletNFTs={walletNFTs}
+            nftEarnings={nftEarnings}
           />
         </div>
       </main>

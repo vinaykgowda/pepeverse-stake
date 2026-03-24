@@ -1,5 +1,5 @@
-// Fixed NFTDisplay.jsx with better name handling
-import React, { useMemo, useState, useEffect } from 'react';
+// frontend/src/components/User/NFTDisplay.jsx
+import React, { useMemo } from 'react';
 
 const NFTDisplay = ({
   nfts,
@@ -10,73 +10,42 @@ const NFTDisplay = ({
   isStakedView = false,
   loading = false,
   collections = [],
-  walletNFTs = []
+  walletNFTs = [],
+  nftEarnings = {},
 }) => {
-  // State to trigger re-renders for lock time updates
-  const [, setUpdateTrigger] = useState(0);
-
-  // Update remaining lock time display every minute
-  useEffect(() => {
-    if (!isStakedView) return;
-
-    const interval = setInterval(() => {
-      setUpdateTrigger(prev => prev + 1);
-    }, 60000); // Update every minute
-
-    return () => clearInterval(interval);
-  }, [isStakedView]);
-
-  // Memoize staked addresses to prevent infinite loops
   const stakedMintAddresses = useMemo(() =>
     new Set(stakedNFTs.map(nft => nft.mintAddress || nft.mint_address)),
     [stakedNFTs]
   );
 
-  // Enrich staked NFTs with image/name data from walletNFTs lookup
   const walletNFTMap = useMemo(() => {
     const map = {};
     walletNFTs.forEach(n => { if (n.mintAddress) map[n.mintAddress] = n; });
     return map;
   }, [walletNFTs]);
 
-  // Compute filtered NFTs using useMemo instead of useEffect
   const filteredNFTs = useMemo(() => {
     if (!nfts) return [];
-
     let result = [...nfts];
-
-    // Filter by staking status
     if (isStakedView) {
-      result = result.filter(nft =>
-        stakedMintAddresses.has(nft.mintAddress || nft.mint_address)
-      );
+      result = result.filter(nft => stakedMintAddresses.has(nft.mintAddress || nft.mint_address));
     } else {
-      result = result.filter(nft =>
-        !stakedMintAddresses.has(nft.mintAddress || nft.mint_address)
-      );
+      result = result.filter(nft => !stakedMintAddresses.has(nft.mintAddress || nft.mint_address));
     }
-
-    // Filter by collection
     if (collectionFilter && collectionFilter !== '') {
       result = result.filter(nft => nft.collectionId === parseInt(collectionFilter));
     }
-
     return result;
   }, [nfts, stakedMintAddresses, collectionFilter, isStakedView]);
 
-  // Handle select all
   const handleSelectAll = () => {
     if (selectedNFTs.length === filteredNFTs.length) {
       setSelectedNFTs([]);
     } else {
-      const identifiers = filteredNFTs.map(nft =>
-        isStakedView ? (nft.id || nft.mintAddress) : nft.mintAddress
-      );
-      setSelectedNFTs(identifiers);
+      setSelectedNFTs(filteredNFTs.map(nft => isStakedView ? (nft.id || nft.mintAddress) : nft.mintAddress));
     }
   };
 
-  // Handle select NFT
   const handleSelectNFT = (identifier) => {
     if (selectedNFTs.includes(identifier)) {
       setSelectedNFTs(selectedNFTs.filter(id => id !== identifier));
@@ -85,102 +54,24 @@ const NFTDisplay = ({
     }
   };
 
-  // Format NFT name properly to show like "Pepe Gods Solana #1"
   const formatNFTName = (nft) => {
-    // First, try to get the name from various sources
-    let nftName = null;
-
-    // Priority 1: Direct name field with full collection name
-    if (nft.name && nft.name !== 'Unknown') {
-      nftName = nft.name;
-    }
-    // Priority 2: Metadata name
-    else if (nft.metadata?.name) {
-      nftName = nft.metadata.name;
-    }
-    // Priority 3: Title field
-    else if (nft.title) {
-      nftName = nft.title;
-    }
-    // Priority 4: Try to construct from available data
-    else {
-      // Look for token ID or number in the data
-      const tokenId = nft.tokenId || nft.token_id || nft.id;
-      const collectionName = nft.collectionName || nft.collection_name || 'NFT';
-
-      if (tokenId) {
-        nftName = `${collectionName} #${tokenId}`;
-      } else {
-        // Last resort: use mint address
-        const mintShort = (nft.mintAddress || nft.mint_address || '').substr(-4);
-        nftName = `${collectionName} #${mintShort}`;
-      }
-    }
-
-    // Clean up the name if needed
-    if (nftName) {
-      // If the name already contains the collection name properly, return as is
-      if (nftName.includes('Pepe Gods Solana') || nftName.includes('Pepe Goddess')) {
-        return nftName;
-      }
-
-      // If it's just a generic name, try to enhance it
-      const collectionName = nft.collectionName || nft.collection_name;
-      if (collectionName && !nftName.includes(collectionName)) {
-        // Extract number from name if it exists
-        const numberMatch = nftName.match(/#(\d+)/);
-        if (numberMatch) {
-          return `${collectionName} #${numberMatch[1]}`;
-        }
-      }
-    }
-
-    return nftName || 'Unknown NFT';
+    if (nft.name && nft.name !== 'Unknown') return nft.name;
+    if (nft.metadata?.name) return nft.metadata.name;
+    if (nft.title) return nft.title;
+    const collectionName = nft.collectionName || nft.collection_name || 'NFT';
+    const numberMatch = (nft.name || '').match(/#(\d+)/);
+    if (numberMatch) return `${collectionName} #${numberMatch[1]}`;
+    const mintShort = (nft.mintAddress || nft.mint_address || '').slice(-4);
+    return `${collectionName} #${mintShort}`;
   };
 
-  // Format collection name
-  const formatCollectionName = (nft) => {
-    return nft.collectionName || nft.collection_name || 'Unknown Collection';
-  };
-
-  // Format remaining lock time
-  const formatRemainingLockTime = (nft) => {
-    const MINIMUM_STAKE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
-    const stakeTimestamp = nft.stakeTimestamp || nft.stake_timestamp;
-    
-    if (!stakeTimestamp) {
-      return { text: '', className: '' };
-    }
-
-    const stakeTime = new Date(stakeTimestamp).getTime();
-    const now = Date.now();
-    const elapsedTime = now - stakeTime;
-    const remainingMs = Math.max(0, MINIMUM_STAKE_DURATION_MS - elapsedTime);
-
-    if (remainingMs === 0) {
-      return { text: 'Ready to unstake', className: 'text-green-600' };
-    }
-
-    const hours = Math.floor(remainingMs / (60 * 60 * 1000));
-    const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
-
-    if (hours > 0) {
-      return { 
-        text: `${hours}h ${minutes}m remaining`, 
-        className: 'text-orange-600' 
-      };
-    } else {
-      return { 
-        text: `${minutes}m remaining`, 
-        className: 'text-orange-600' 
-      };
-    }
-  };
+  const formatCollectionName = (nft) =>
+    nft.collectionName || nft.collection_name || 'Unknown Collection';
 
   if (loading) {
     return (
       <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500" />
       </div>
     );
   }
@@ -207,7 +98,8 @@ const NFTDisplay = ({
     <div>
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-green-700">
-          {filteredNFTs.length} NFT{filteredNFTs.length !== 1 ? 's' : ''}{collectionFilter ? ' in collection' : ''}
+          {filteredNFTs.length} NFT{filteredNFTs.length !== 1 ? 's' : ''}
+          {collectionFilter ? ' in collection' : ''}
         </p>
         {filteredNFTs.length > 0 && (
           <div className="flex items-center gap-3">
@@ -230,11 +122,12 @@ const NFTDisplay = ({
         {filteredNFTs.map((nft) => {
           const identifier = isStakedView ? (nft.id || nft.mintAddress) : nft.mintAddress;
           const isSelected = selectedNFTs.includes(identifier);
-          // For staked NFTs, enrich with wallet data for image/name
           const mintAddr = nft.mintAddress || nft.mint_address;
           const enriched = isStakedView && walletNFTMap[mintAddr] ? { ...walletNFTMap[mintAddr], ...nft } : nft;
           const nftName = formatNFTName(enriched);
           const collectionName = formatCollectionName(enriched);
+          // Earning badges for staked NFTs
+          const earnings = isStakedView ? (nftEarnings[mintAddr] || []) : [];
 
           return (
             <div
@@ -256,12 +149,26 @@ const NFTDisplay = ({
               </div>
 
               <div className="p-2 bg-[#111a11]">
-                <h4 className="text-xs font-medium text-green-300 line-clamp-2 mb-0.5" title={nftName}>{nftName}</h4>
-                <p className="text-xs text-green-700 truncate">{collectionName}</p>
-                {isStakedView && (nft.stakeTimestamp || nft.stake_timestamp) && (() => {
-                  const lockTime = formatRemainingLockTime(nft);
-                  return <p className={`text-xs font-medium mt-0.5 ${lockTime.className}`}>{lockTime.text}</p>;
-                })()}
+                <h4 className="text-xs font-medium text-green-300 line-clamp-1 mb-0.5" title={nftName}>{nftName}</h4>
+                <p className="text-xs text-green-700 truncate mb-1">{collectionName}</p>
+                {/* Earning badges */}
+                {earnings.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {earnings.map((e, i) => (
+                      <span
+                        key={i}
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-semibold leading-tight ${
+                          e.has_trait_bonus
+                            ? 'bg-yellow-900/60 text-yellow-400 border border-yellow-700/50'
+                            : 'bg-green-950/60 text-green-500 border border-green-800/50'
+                        }`}
+                        title={e.has_trait_bonus ? `${e.daily_rate}/day + trait bonus` : `${e.daily_rate}/day`}
+                      >
+                        {e.token_symbol}{e.has_trait_bonus ? ' ★' : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {isSelected && (
@@ -272,11 +179,10 @@ const NFTDisplay = ({
                 </div>
               )}
 
-              <div className={`absolute top-2 left-2 text-xs px-1.5 py-0.5 rounded font-semibold ${
-                isStakedView ? 'bg-green-600/80 text-black' : 'bg-black/70 text-green-400'
-              }`}>
-                {isStakedView ? 'STAKED' : collectionName.substring(0, 6) + (collectionName.length > 6 ? '..' : '')}
-              </div>            </div>
+              <div className="absolute top-2 left-2 text-xs px-1.5 py-0.5 rounded font-semibold bg-green-600/80 text-black">
+                {isStakedView ? 'STAKED' : ''}
+              </div>
+            </div>
           );
         })}
       </div>

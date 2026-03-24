@@ -509,6 +509,43 @@ stakingRouter.post('/solana/send-transaction', verifyJWT, async (req, res) => {
   } catch (e) { console.error('[solana/send-transaction]', e.message); res.status(500).json({ success: false, message: 'Failed to send transaction' }); }
 });
 
+// GET /api/v1/rewards/per-nft — returns earning tokens per staked NFT mint address
+stakingRouter.get('/rewards/per-nft', verifyJWT, async (req, res) => {
+  try {
+    const result = await getPool().query(
+      `SELECT s.mint_address, cr.token_symbol, cr.daily_rate, cr.token_address,
+              STRING_AGG(CONCAT(tr.trait_type, ':', tr.trait_value, ':', tr.multiplier), '||') as trait_multipliers,
+              s.traits
+       FROM staked_nfts s
+       JOIN collections c ON s.collection_id = c.id
+       JOIN collection_rewards cr ON c.id = cr.collection_id AND cr.is_active = TRUE
+       LEFT JOIN trait_rewards tr ON tr.collection_id = s.collection_id AND tr.token_address = cr.token_address AND tr.is_active = TRUE
+       WHERE s.owner_wallet = $1
+       GROUP BY s.mint_address, cr.token_symbol, cr.daily_rate, cr.token_address, s.traits`,
+      [req.user.walletAddress]
+    );
+    // Build map: mint_address -> [{token_symbol, daily_rate, has_trait_bonus}]
+    const map = {};
+    for (const row of result.rows) {
+      if (!map[row.mint_address]) map[row.mint_address] = [];
+      let hasTraitBonus = false;
+      if (row.trait_multipliers && row.traits) {
+        try {
+          const traits = Array.isArray(row.traits) ? row.traits : JSON.parse(row.traits);
+          for (const pair of row.trait_multipliers.split('||')) {
+            const [traitType, traitValue] = pair.split(':');
+            if (traits.some(t => t.trait_type === traitType && t.value === traitValue)) {
+              hasTraitBonus = true; break;
+            }
+          }
+        } catch {}
+      }
+      map[row.mint_address].push({ token_symbol: row.token_symbol, daily_rate: parseFloat(row.daily_rate), has_trait_bonus: hasTraitBonus });
+    }
+    return res.json({ success: true, data: map });
+  } catch (e) { console.error('[rewards/per-nft]', e.message); res.status(500).json({ success: false, message: 'Failed to get per-NFT earnings' }); }
+});
+
 // GET /api/v1/rewards/quote
 stakingRouter.get('/rewards/quote', verifyJWT, async (req, res) => {
   try {
