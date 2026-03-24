@@ -104,7 +104,6 @@ class HeliusService {
   }
 
   // Get NFTs for multiple collections
-  // Requirements: 15.1 - Use newline-separated format
   async getNFTsForCollections(ownerAddress, collections) {
     try {
       const allCollectionNFTs = [];
@@ -113,30 +112,37 @@ class HeliusService {
         try {
           let hashlist = [];
 
-          // Parse hashlist - now standardized to newline-separated format
+          // Parse hashlist - newline-separated format
           if (typeof collection.hashlist === 'string') {
-            // Split by newlines and filter empty lines
             hashlist = collection.hashlist
               .split('\n')
               .map(line => line.trim())
               .filter(line => line.length > 0);
           } else if (Array.isArray(collection.hashlist)) {
-            // Already an array
             hashlist = collection.hashlist;
           }
 
+          let collectionNFTs = [];
+
           if (hashlist.length > 0) {
-            const collectionNFTs = await this.getNFTsForCollection(ownerAddress, hashlist);
-
-            // Add collection info to each NFT
-            const nftsWithCollection = collectionNFTs.map(nft => ({
-              ...nft,
-              collectionId: collection.id,
-              collectionName: collection.name
-            }));
-
-            allCollectionNFTs.push(...nftsWithCollection);
+            // Filter by hashlist (mint addresses)
+            collectionNFTs = await this.getNFTsForCollection(ownerAddress, hashlist);
+          } else if (collection.creator_address) {
+            // No hashlist — filter by on-chain collection ID (creator_address = group_value)
+            console.log(`Collection "${collection.name}" has no hashlist, filtering by creator_address: ${collection.creator_address}`);
+            const data = await this.searchAssets(ownerAddress, collection.creator_address);
+            const items = data?.items || [];
+            collectionNFTs = items.map(nft => this.transformNFTData(nft));
           }
+
+          // Add collection info to each NFT
+          const nftsWithCollection = collectionNFTs.map(nft => ({
+            ...nft,
+            collectionId: collection.id,
+            collectionName: collection.name
+          }));
+
+          allCollectionNFTs.push(...nftsWithCollection);
         } catch (error) {
           console.error(`Error processing collection ${collection.name}:`, error);
         }

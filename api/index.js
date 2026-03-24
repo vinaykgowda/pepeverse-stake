@@ -197,7 +197,7 @@ heliusRouter.post('/nfts/by-owner', async (req, res) => {
       params: { ownerAddress, page, limit, displayOptions: { showFungible: false, showNativeBalance: false } }
     };
 
-    const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint}?api-key=${apiKey}`;
+    const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
     const response = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
 
     let items = response.data?.result?.items || [];
