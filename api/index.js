@@ -682,9 +682,15 @@ stakingRouter.post('/rewards/claim', verifyJWT, async (req, res) => {
 });
 
 // PUT /api/v1/collections/:id — used by FeeManager and CollectionManager (updateCollection in api.js)
-const multer = require('multer');
-const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-stakingRouter.put('/collections/:id', verifyJWT, _upload.single('hashlist'), async (req, res) => {
+stakingRouter.put('/collections/:id', verifyJWT, (req, res, next) => {
+  try {
+    const multer = require('multer');
+    multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('hashlist')(req, res, next);
+  } catch (e) {
+    // multer not available — skip file parsing, continue
+    next();
+  }
+}, async (req, res) => {
   const { id } = req.params;
   try {
     const pool = getPool();
