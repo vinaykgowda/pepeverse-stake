@@ -374,9 +374,9 @@ stakingRouter.get('/rewards/calculate', verifyJWT, async (req, res) => {
       // Trait rewards: earn from MAX(lastClaim, trait.created_at) to now
       for (const tr of (traitByCollection[nft.collection_id] || [])) {
         const hasMatch = traits.some(t => {
-          const tType = (t.trait_type || t.type || '').toLowerCase();
-          const tVal = (t.value || t.trait_value || '').toLowerCase();
-          return tType === tr.trait_type.toLowerCase() && tVal === tr.trait_value.toLowerCase();
+          const tType = String(t.trait_type ?? t.type ?? '').toLowerCase();
+          const tVal = String(t.value ?? t.trait_value ?? '').toLowerCase();
+          return tType === String(tr.trait_type).toLowerCase() && tVal === String(tr.trait_value).toLowerCase();
         });
         if (!hasMatch) continue;
 
@@ -625,9 +625,9 @@ stakingRouter.get('/rewards/per-nft', verifyJWT, async (req, res) => {
 
       for (const tr of (traitByCollection[collection_id] || [])) {
         const hasMatch = traits.some(t => {
-          const tType = (t.trait_type || t.type || '').toLowerCase();
-          const tVal = (t.value || t.trait_value || '').toLowerCase();
-          return tType === tr.trait_type.toLowerCase() && tVal === tr.trait_value.toLowerCase();
+          const tType = String(t.trait_type ?? t.type ?? '').toLowerCase();
+          const tVal = String(t.value ?? t.trait_value ?? '').toLowerCase();
+          return tType === String(tr.trait_type).toLowerCase() && tVal === String(tr.trait_value).toLowerCase();
         });
         if (!hasMatch) continue;
         if (!tokenMap[tr.token_address]) tokenMap[tr.token_address] = { token_symbol: tr.token_symbol, base_rate: 0, trait_rate: 0 };
