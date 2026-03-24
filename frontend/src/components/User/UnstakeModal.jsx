@@ -59,7 +59,7 @@ const UnstakeModal = ({ selectedNFTs, stakedNFTs, onSuccess, onClose }) => {
             </div>
 
             <p className="text-xs text-gray-500 mb-4">
-              This will return {selectedNFTs.length} NFT{selectedNFTs.length !== 1 ? 's' : ''} to your wallet.
+              This will unstake {selectedNFTs.length} NFT{selectedNFTs.length !== 1 ? 's' : ''} from the platform. Your NFTs stay in your wallet.
             </p>
 
             <div className="flex gap-3">

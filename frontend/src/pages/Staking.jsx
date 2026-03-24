@@ -80,7 +80,7 @@ const Staking = () => {
 
         {/* Stats + Airdrops */}
         <div className="mb-8">
-          <StakingStats walletNFTs={walletNFTs} />
+          <StakingStats walletNFTs={unstakedNFTs} />
         </div>
 
         {/* NFT Panel - full width */}
@@ -154,6 +154,7 @@ const Staking = () => {
             isStakedView={activeTab === 'staked'}
             loading={loadingNFTs}
             collections={collections}
+            walletNFTs={walletNFTs}
           />
         </div>
       </main>

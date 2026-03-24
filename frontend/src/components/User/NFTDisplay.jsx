@@ -9,7 +9,8 @@ const NFTDisplay = ({
   collectionFilter,
   isStakedView = false,
   loading = false,
-  collections = []
+  collections = [],
+  walletNFTs = []
 }) => {
   // State to trigger re-renders for lock time updates
   const [, setUpdateTrigger] = useState(0);
@@ -30,6 +31,13 @@ const NFTDisplay = ({
     new Set(stakedNFTs.map(nft => nft.mintAddress || nft.mint_address)),
     [stakedNFTs]
   );
+
+  // Enrich staked NFTs with image/name data from walletNFTs lookup
+  const walletNFTMap = useMemo(() => {
+    const map = {};
+    walletNFTs.forEach(n => { if (n.mintAddress) map[n.mintAddress] = n; });
+    return map;
+  }, [walletNFTs]);
 
   // Compute filtered NFTs using useMemo instead of useEffect
   const filteredNFTs = useMemo(() => {
@@ -222,8 +230,11 @@ const NFTDisplay = ({
         {filteredNFTs.map((nft) => {
           const identifier = isStakedView ? (nft.id || nft.mintAddress) : nft.mintAddress;
           const isSelected = selectedNFTs.includes(identifier);
-          const nftName = formatNFTName(nft);
-          const collectionName = formatCollectionName(nft);
+          // For staked NFTs, enrich with wallet data for image/name
+          const mintAddr = nft.mintAddress || nft.mint_address;
+          const enriched = isStakedView && walletNFTMap[mintAddr] ? { ...walletNFTMap[mintAddr], ...nft } : nft;
+          const nftName = formatNFTName(enriched);
+          const collectionName = formatCollectionName(enriched);
 
           return (
             <div
@@ -237,7 +248,7 @@ const NFTDisplay = ({
             >
               <div className="aspect-square bg-[#0d1a0d]">
                 <img
-                  src={nft.image}
+                  src={enriched.image}
                   alt={nftName}
                   className="w-full h-full object-cover"
                   onError={(e) => { e.target.src = `https://via.placeholder.com/150x150/0d1a0d/22c55e?text=${nftName?.charAt(0) || 'N'}`; }}
@@ -265,8 +276,7 @@ const NFTDisplay = ({
                 isStakedView ? 'bg-green-600/80 text-black' : 'bg-black/70 text-green-400'
               }`}>
                 {isStakedView ? 'STAKED' : collectionName.substring(0, 6) + (collectionName.length > 6 ? '..' : '')}
-              </div>
-            </div>
+              </div>            </div>
           );
         })}
       </div>

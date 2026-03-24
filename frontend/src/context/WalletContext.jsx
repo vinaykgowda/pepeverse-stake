@@ -102,18 +102,43 @@ export const WalletProvider = ({ children }) => {
         throw new Error(initResult.message);
       }
 
-      // Sign and verify message
-      const authResult = await walletService.signAndVerify();
+      // Check if we already have a valid token for this wallet
+      const existingToken = localStorage.getItem('token');
+      const existingUser = localStorage.getItem('user');
+      let authUser = null;
 
-      if (!authResult.success) {
-        throw new Error(authResult.message);
+      if (existingToken && existingUser) {
+        try {
+          // Decode JWT to check expiry (without verifying signature — server will reject if invalid)
+          const payload = JSON.parse(atob(existingToken.split('.')[1]));
+          const isExpired = payload.exp && Date.now() / 1000 > payload.exp;
+          const isSameWallet = payload.walletAddress === initResult.publicKey;
+
+          if (!isExpired && isSameWallet) {
+            // Reuse existing session — no need to re-sign
+            authUser = JSON.parse(existingUser);
+            window.dispatchEvent(new Event('wallet-auth'));
+            console.log('✅ Reusing existing session');
+          }
+        } catch (e) {
+          // Token malformed — fall through to re-sign
+        }
+      }
+
+      if (!authUser) {
+        // Sign and verify message
+        const authResult = await walletService.signAndVerify();
+        if (!authResult.success) {
+          throw new Error(authResult.message);
+        }
+        authUser = authResult.user;
       }
 
       // Set wallet state
       const newWallet = {
         publicKey: initResult.publicKey,
         adapter: initResult.adapter,
-        isAdmin: authResult.user.isAdmin
+        isAdmin: authUser.isAdmin
       };
 
       setWallet(newWallet);
