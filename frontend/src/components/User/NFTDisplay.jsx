@@ -162,9 +162,11 @@ const NFTDisplay = ({
                             ? 'bg-yellow-900/60 text-yellow-400 border border-yellow-700/50'
                             : 'bg-green-950/60 text-green-500 border border-green-800/50'
                         }`}
-                        title={e.has_trait_bonus ? `${e.daily_rate}/day + trait bonus` : `${e.daily_rate}/day`}
+                        title={e.has_trait_bonus
+                          ? `${e.base_rate}/day base + ${e.trait_rate}/day trait`
+                          : `${e.total_rate}/day`}
                       >
-                        {e.token_symbol}{e.has_trait_bonus ? ' ★' : ''}
+                        {e.total_rate} {e.token_symbol}
                       </span>
                     ))}
                   </div>

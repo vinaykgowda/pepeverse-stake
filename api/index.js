@@ -314,49 +314,62 @@ stakingRouter.get('/staking/stats', verifyJWT, async (req, res) => {
 
 stakingRouter.get('/rewards/calculate', verifyJWT, async (req, res) => {
   try {
-    const result = await getPool().query(
+    const pool = getPool();
+
+    // Get all staked NFTs
+    const stakedResult = await pool.query(
       `SELECT s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.last_claim_timestamp, s.traits,
-              c.name as collection_name, cr.id as reward_id, cr.token_address, cr.token_symbol,
-              cr.daily_rate, cr.token_decimals,
-              EXTRACT(EPOCH FROM (NOW() - COALESCE(s.last_claim_timestamp, s.stake_timestamp))) as seconds_since_last_claim,
-              STRING_AGG(CONCAT(tr.trait_type, ':', tr.trait_value, ':', tr.multiplier), '||') as trait_multipliers
-       FROM staked_nfts s
-       JOIN collections c ON s.collection_id = c.id
-       LEFT JOIN collection_rewards cr ON c.id = cr.collection_id AND cr.is_active = TRUE
-       LEFT JOIN trait_rewards tr ON tr.collection_id = s.collection_id AND tr.token_address = cr.token_address AND tr.is_active = TRUE
-       WHERE s.owner_wallet = $1
-       GROUP BY s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.last_claim_timestamp, s.traits,
-                c.name, cr.id, cr.token_address, cr.token_symbol, cr.daily_rate, cr.token_decimals`,
+              EXTRACT(EPOCH FROM (NOW() - COALESCE(s.last_claim_timestamp, s.stake_timestamp))) as seconds_since_last_claim
+       FROM staked_nfts s WHERE s.owner_wallet = $1`,
       [req.user.walletAddress]
     );
+    if (stakedResult.rows.length === 0) return res.json({ success: true, data: [] });
 
-    const nftsWithRewards = result.rows.filter(r => r.reward_id !== null);
-    if (nftsWithRewards.length === 0) return res.json({ success: true, data: [] });
+    // Get all active base rewards and trait rewards
+    const [baseRes, traitRes] = await Promise.all([
+      pool.query(`SELECT collection_id, token_address, token_symbol, token_decimals, daily_rate FROM collection_rewards WHERE is_active = TRUE`),
+      pool.query(`SELECT collection_id, token_address, token_symbol, token_decimals, trait_type, trait_value, multiplier FROM trait_rewards WHERE is_active = TRUE`),
+    ]);
+
+    const baseByCollection = {};
+    for (const r of baseRes.rows) {
+      if (!baseByCollection[r.collection_id]) baseByCollection[r.collection_id] = [];
+      baseByCollection[r.collection_id].push(r);
+    }
+    const traitByCollection = {};
+    for (const r of traitRes.rows) {
+      if (!traitByCollection[r.collection_id]) traitByCollection[r.collection_id] = [];
+      traitByCollection[r.collection_id].push(r);
+    }
 
     const rewardsByToken = {};
-    for (const nft of nftsWithRewards) {
+    for (const nft of stakedResult.rows) {
       const seconds = parseInt(nft.seconds_since_last_claim) || 0;
       if (seconds < 60) continue;
       const days = seconds / 86400;
-      let reward = parseFloat(nft.daily_rate) * days;
 
-      if (nft.trait_multipliers && nft.traits) {
-        try {
-          const traits = Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits);
-          for (const pair of nft.trait_multipliers.split('||')) {
-            const [traitType, traitValue, earnStr] = pair.split(':');
-            if (traits.some(t => t.trait_type === traitType && t.value === traitValue)) {
-              reward += parseFloat(earnStr) * days;
-            }
-          }
-        } catch {}
+      let traits = [];
+      try { traits = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : []; } catch {}
+
+      // Base rewards
+      for (const base of (baseByCollection[nft.collection_id] || [])) {
+        const key = base.token_address;
+        if (!rewardsByToken[key]) rewardsByToken[key] = { token_address: base.token_address, token_symbol: base.token_symbol, token_decimals: base.token_decimals, amount: 0 };
+        rewardsByToken[key].amount += parseFloat(base.daily_rate) * days;
       }
 
-      const key = nft.token_address;
-      if (!rewardsByToken[key]) {
-        rewardsByToken[key] = { token_address: nft.token_address, token_symbol: nft.token_symbol, token_decimals: nft.token_decimals, amount: 0 };
+      // Trait rewards — check if NFT has matching trait
+      for (const tr of (traitByCollection[nft.collection_id] || [])) {
+        const hasMatch = traits.some(t => {
+          const tType = (t.trait_type || t.type || '').toLowerCase();
+          const tVal = (t.value || t.trait_value || '').toLowerCase();
+          return tType === tr.trait_type.toLowerCase() && tVal === tr.trait_value.toLowerCase();
+        });
+        if (!hasMatch) continue;
+        const key = tr.token_address;
+        if (!rewardsByToken[key]) rewardsByToken[key] = { token_address: tr.token_address, token_symbol: tr.token_symbol, token_decimals: tr.token_decimals || 0, amount: 0 };
+        rewardsByToken[key].amount += parseFloat(tr.multiplier) * days;
       }
-      rewardsByToken[key].amount += reward;
     }
 
     res.json({ success: true, data: Object.values(rewardsByToken) });
@@ -510,38 +523,87 @@ stakingRouter.post('/solana/send-transaction', verifyJWT, async (req, res) => {
 });
 
 // GET /api/v1/rewards/per-nft — returns earning tokens per staked NFT mint address
+// Shows base + trait earnings combined per token, including trait-only tokens
 stakingRouter.get('/rewards/per-nft', verifyJWT, async (req, res) => {
   try {
-    const result = await getPool().query(
-      `SELECT s.mint_address, cr.token_symbol, cr.daily_rate, cr.token_address,
-              STRING_AGG(CONCAT(tr.trait_type, ':', tr.trait_value, ':', tr.multiplier), '||') as trait_multipliers,
-              s.traits
-       FROM staked_nfts s
-       JOIN collections c ON s.collection_id = c.id
-       JOIN collection_rewards cr ON c.id = cr.collection_id AND cr.is_active = TRUE
-       LEFT JOIN trait_rewards tr ON tr.collection_id = s.collection_id AND tr.token_address = cr.token_address AND tr.is_active = TRUE
-       WHERE s.owner_wallet = $1
-       GROUP BY s.mint_address, cr.token_symbol, cr.daily_rate, cr.token_address, s.traits`,
+    const pool = getPool();
+
+    // Get all staked NFTs for this wallet
+    const stakedResult = await pool.query(
+      `SELECT s.mint_address, s.collection_id, s.traits FROM staked_nfts s WHERE s.owner_wallet = $1`,
       [req.user.walletAddress]
     );
-    // Build map: mint_address -> [{token_symbol, daily_rate, has_trait_bonus}]
-    const map = {};
-    for (const row of result.rows) {
-      if (!map[row.mint_address]) map[row.mint_address] = [];
-      let hasTraitBonus = false;
-      if (row.trait_multipliers && row.traits) {
-        try {
-          const traits = Array.isArray(row.traits) ? row.traits : JSON.parse(row.traits);
-          for (const pair of row.trait_multipliers.split('||')) {
-            const [traitType, traitValue] = pair.split(':');
-            if (traits.some(t => t.trait_type === traitType && t.value === traitValue)) {
-              hasTraitBonus = true; break;
-            }
-          }
-        } catch {}
-      }
-      map[row.mint_address].push({ token_symbol: row.token_symbol, daily_rate: parseFloat(row.daily_rate), has_trait_bonus: hasTraitBonus });
+    if (stakedResult.rows.length === 0) return res.json({ success: true, data: {} });
+
+    // Get all active base collection rewards
+    const baseRewardsResult = await pool.query(
+      `SELECT collection_id, token_address, token_symbol, daily_rate FROM collection_rewards WHERE is_active = TRUE`
+    );
+    // Get all active trait rewards
+    const traitRewardsResult = await pool.query(
+      `SELECT collection_id, token_address, token_symbol, trait_type, trait_value, multiplier FROM trait_rewards WHERE is_active = TRUE`
+    );
+
+    const baseByCollection = {}; // collection_id -> [{token_address, token_symbol, daily_rate}]
+    for (const r of baseRewardsResult.rows) {
+      if (!baseByCollection[r.collection_id]) baseByCollection[r.collection_id] = [];
+      baseByCollection[r.collection_id].push(r);
     }
+
+    const traitByCollection = {}; // collection_id -> [{token_address, token_symbol, trait_type, trait_value, multiplier}]
+    for (const r of traitRewardsResult.rows) {
+      if (!traitByCollection[r.collection_id]) traitByCollection[r.collection_id] = [];
+      traitByCollection[r.collection_id].push(r);
+    }
+
+    const map = {}; // mint_address -> [{token_symbol, daily_rate, trait_rate, total_rate, has_trait_bonus}]
+    for (const nft of stakedResult.rows) {
+      const { mint_address, collection_id, traits: traitsRaw } = nft;
+      let traits = [];
+      try {
+        traits = traitsRaw ? (Array.isArray(traitsRaw) ? traitsRaw : JSON.parse(traitsRaw)) : [];
+      } catch {}
+
+      // Build per-token earning map for this NFT
+      const tokenMap = {}; // token_address -> {token_symbol, base_rate, trait_rate}
+
+      // Add base collection rewards
+      for (const base of (baseByCollection[collection_id] || [])) {
+        if (!tokenMap[base.token_address]) {
+          tokenMap[base.token_address] = { token_symbol: base.token_symbol, base_rate: 0, trait_rate: 0 };
+        }
+        tokenMap[base.token_address].base_rate += parseFloat(base.daily_rate);
+      }
+
+      // Add trait rewards — check if this NFT has the matching trait
+      for (const tr of (traitByCollection[collection_id] || [])) {
+        // Match trait: check both t.value and t.trait_value to handle different JSON structures
+        const hasMatch = traits.some(t => {
+          const tType = t.trait_type || t.type || '';
+          const tVal = t.value || t.trait_value || '';
+          return tType.toLowerCase() === tr.trait_type.toLowerCase() &&
+                 tVal.toLowerCase() === tr.trait_value.toLowerCase();
+        });
+        if (!hasMatch) continue;
+
+        if (!tokenMap[tr.token_address]) {
+          tokenMap[tr.token_address] = { token_symbol: tr.token_symbol, base_rate: 0, trait_rate: 0 };
+        }
+        tokenMap[tr.token_address].trait_rate += parseFloat(tr.multiplier);
+      }
+
+      // Convert to array, only include tokens where total > 0
+      map[mint_address] = Object.entries(tokenMap)
+        .map(([, v]) => ({
+          token_symbol: v.token_symbol,
+          base_rate: v.base_rate,
+          trait_rate: v.trait_rate,
+          total_rate: v.base_rate + v.trait_rate,
+          has_trait_bonus: v.trait_rate > 0,
+        }))
+        .filter(e => e.total_rate > 0);
+    }
+
     return res.json({ success: true, data: map });
   } catch (e) { console.error('[rewards/per-nft]', e.message); res.status(500).json({ success: false, message: 'Failed to get per-NFT earnings' }); }
 });
