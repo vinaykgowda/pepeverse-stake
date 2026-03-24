@@ -867,8 +867,8 @@ router.post('/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => {
   try {
     const pool = getPool();
     const result = await pool.query(
-      `INSERT INTO trait_rewards (collection_id, trait_type, trait_value, token_address, token_symbol, multiplier, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING *`,
+      `INSERT INTO trait_rewards (collection_id, trait_type, trait_value, token_address, token_symbol, multiplier, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, true, NOW()) RETURNING *`,
       [collection_id, trait_type, trait_value, token_address, token_symbol, multiplier]
     );
     return res.json({ success: true, data: result.rows[0] });
