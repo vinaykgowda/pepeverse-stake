@@ -110,6 +110,7 @@ const stakingApi = {
 
   getTransactionHistory: () => api.get('/transactions'),
   getPerNftEarnings: () => api.get('/rewards/per-nft'),
+  refreshTraits: () => api.post('/nfts/refresh-traits'),
 };
 
 // Admin API calls

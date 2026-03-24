@@ -25,13 +25,13 @@ const Staking = () => {
   const loadNFTs = useCallback(async () => {
     try {
       setLoadingNFTs(true);
-      const [walletData, stakedData, earningsRes] = await Promise.all([
-        loadUserNFTs(),
-        getStakedNFTs(),
-        api.staking.getPerNftEarnings().then(r => r.data.data).catch(() => ({})),
-      ]);
+      const [walletData, stakedData] = await Promise.all([loadUserNFTs(), getStakedNFTs()]);
       setWalletNFTs(walletData || []);
       setStakedNFTs(stakedData || []);
+
+      // Refresh traits for any staked NFTs that have empty traits, then fetch earnings
+      await api.staking.refreshTraits().catch(() => {});
+      const earningsRes = await api.staking.getPerNftEarnings().then(r => r.data.data).catch(() => ({}));
       setNftEarnings(earningsRes || {});
     } catch (error) {
       console.error('Error loading NFTs:', error);

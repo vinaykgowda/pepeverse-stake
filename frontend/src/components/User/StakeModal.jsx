@@ -87,7 +87,12 @@ const StakeModal = ({ selectedNFTs, walletNFTs, collections, onSuccess, onClose 
       const collectionId = firstNFT?.collectionId;
       if (!collectionId) throw new Error('Could not determine collection');
 
-      const nftsPayload = selectedNFTs.map(m => ({ mintAddress: m, traits: [] }));
+      const nftsPayload = selectedNFTs.map(m => {
+        const nft = walletNFTs.find(n => n.mintAddress === m);
+        // attributes from Helius DAS format: [{trait_type, value}]
+        const traits = nft?.attributes || nft?.traits || [];
+        return { mintAddress: m, traits };
+      });
       const result = await api.nft.stakeNFTs(nftsPayload, collectionId, paymentSignature);
 
       if (result.data.success) {

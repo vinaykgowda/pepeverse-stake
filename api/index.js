@@ -431,8 +431,45 @@ stakingRouter.post('/nfts/stake/quote', verifyJWT, async (req, res) => {
   } catch (e) { console.error('[nfts/stake/quote]', e.message); res.status(500).json({ success: false, message: 'Failed to calculate staking fee' }); }
 });
 
-// POST /api/v1/nfts/stake
-stakingRouter.post('/nfts/stake', verifyJWT, async (req, res) => {
+// POST /api/v1/nfts/refresh-traits — fetch traits from Helius for staked NFTs with empty traits
+stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
+  try {
+    const pool = getPool();
+    const endpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+    const apiKey = process.env.HELIUS_API_KEY;
+    if (!endpoint || !apiKey) return res.status(500).json({ success: false, message: 'Helius not configured' });
+    const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
+
+    // Get staked NFTs with empty/null traits for this wallet
+    const result = await pool.query(
+      `SELECT id, mint_address FROM staked_nfts WHERE owner_wallet = $1 AND (traits IS NULL OR traits::text = '[]' OR traits::text = 'null')`,
+      [req.user.walletAddress]
+    );
+    if (result.rows.length === 0) return res.json({ success: true, updated: 0 });
+
+    let updated = 0;
+    for (const nft of result.rows) {
+      try {
+        const response = await axios.post(url, {
+          jsonrpc: '2.0', id: 'get-asset', method: 'getAsset',
+          params: { id: nft.mint_address }
+        }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
+
+        const asset = response.data?.result;
+        const attributes = asset?.content?.metadata?.attributes || [];
+        if (attributes.length > 0) {
+          await pool.query('UPDATE staked_nfts SET traits = $1 WHERE id = $2', [JSON.stringify(attributes), nft.id]);
+          updated++;
+        }
+      } catch (e) {
+        console.error(`[refresh-traits] Failed for ${nft.mint_address}:`, e.message);
+      }
+    }
+    return res.json({ success: true, updated });
+  } catch (e) { console.error('[nfts/refresh-traits]', e.message); res.status(500).json({ success: false, message: 'Failed to refresh traits' }); }
+});
+
+// POST /api/v1/nfts/stake — record staking in DB
   try {
     const { nfts, collectionId, paymentSignature } = req.body;
     if (!nfts || !Array.isArray(nfts) || nfts.length === 0 || !collectionId) {
