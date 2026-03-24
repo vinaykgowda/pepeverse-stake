@@ -1,10 +1,9 @@
 // frontend/src/components/User/StakeModal.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '../../context/WalletContext';
-import { Connection, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { formatSol } from '../../utils/format';
 import api from '../../services/api';
-import networkConfig from '../../config/network';
 
 const StakeModal = ({ selectedNFTs, walletNFTs, collections, onSuccess, onClose }) => {
   const { wallet } = useWallet();
@@ -60,6 +59,11 @@ const StakeModal = ({ selectedNFTs, walletNFTs, collections, onSuccess, onClose 
       if (quote?.totalFee > 0 && quote?.feeRecipient) {
         setStatus('Preparing payment...');
         const lamports = Math.floor(quote.totalFee * LAMPORTS_PER_SOL);
+
+        // Get blockhash via backend proxy (avoids 403 on public RPC)
+        const blockhashRes = await api.solana.getBlockhash();
+        const { blockhash } = blockhashRes.data.data;
+
         const tx = new Transaction().add(
           SystemProgram.transfer({
             fromPubkey: wallet.adapter.publicKey,
@@ -67,14 +71,15 @@ const StakeModal = ({ selectedNFTs, walletNFTs, collections, onSuccess, onClose 
             lamports,
           })
         );
-        const connection = new Connection(networkConfig.getRpcEndpoint(), 'confirmed');
-        const { blockhash } = await connection.getLatestBlockhash();
         tx.recentBlockhash = blockhash;
         tx.feePayer = wallet.adapter.publicKey;
         const signed = await wallet.adapter.signTransaction(tx);
-        const sig = await connection.sendRawTransaction(signed.serialize());
-        await connection.confirmTransaction(sig, 'confirmed');
-        paymentSignature = sig;
+
+        // Send via backend proxy
+        const sendRes = await api.solana.sendTransaction(
+          Buffer.from(signed.serialize()).toString('base64')
+        );
+        paymentSignature = sendRes.data.data.signature;
       }
 
       setStatus('Staking NFTs...');

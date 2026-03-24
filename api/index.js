@@ -461,6 +461,65 @@ stakingRouter.post('/nfts/unstake', verifyJWT, async (req, res) => {
   } catch (e) { console.error('[nfts/unstake]', e.message); res.status(500).json({ success: false, message: 'Failed to unstake NFTs' }); }
 });
 
+// GET /api/v1/staking/global-stats — global staked counts + hashlist sizes per collection
+stakingRouter.get('/staking/global-stats', async (req, res) => {
+  try {
+    const result = await getPool().query(
+      `SELECT c.id, c.name,
+              COUNT(sn.id) AS global_staked_count,
+              CASE
+                WHEN c.hashlist IS NOT NULL AND c.hashlist != ''
+                THEN array_length(regexp_split_to_array(trim(c.hashlist), E'\\\\+\\n|\\n\\\\+|\\\\+'), 1)
+                ELSE 0
+              END AS hashlist_count
+       FROM collections c
+       LEFT JOIN staked_nfts sn ON c.id = sn.collection_id
+       GROUP BY c.id, c.name, c.hashlist ORDER BY c.name`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (e) { console.error('[staking/global-stats]', e.message); res.status(500).json({ success: false, message: 'Failed to get global stats' }); }
+});
+
+// GET /api/v1/solana/blockhash — server-side proxy to avoid CORS/rate-limit on public RPC
+stakingRouter.get('/solana/blockhash', verifyJWT, async (req, res) => {
+  try {
+    const endpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+    const apiKey = process.env.HELIUS_API_KEY;
+    if (!endpoint || !apiKey) return res.status(500).json({ success: false, message: 'RPC not configured' });
+    const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
+    const response = await axios.post(url, {
+      jsonrpc: '2.0', id: 'get-blockhash', method: 'getLatestBlockhash',
+      params: [{ commitment: 'confirmed' }]
+    }, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+    const blockhash = response.data?.result?.value?.blockhash;
+    const lastValidBlockHeight = response.data?.result?.value?.lastValidBlockHeight;
+    if (!blockhash) return res.status(500).json({ success: false, message: 'Failed to get blockhash from RPC' });
+    return res.json({ success: true, data: { blockhash, lastValidBlockHeight } });
+  } catch (e) { console.error('[solana/blockhash]', e.message); res.status(500).json({ success: false, message: 'Failed to get blockhash' }); }
+});
+
+// POST /api/v1/solana/send-transaction — server-side proxy to send raw transaction
+stakingRouter.post('/solana/send-transaction', verifyJWT, async (req, res) => {
+  try {
+    const { transaction } = req.body;
+    if (!transaction) return res.status(400).json({ success: false, message: 'transaction is required' });
+    const endpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+    const apiKey = process.env.HELIUS_API_KEY;
+    if (!endpoint || !apiKey) return res.status(500).json({ success: false, message: 'RPC not configured' });
+    const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
+    const response = await axios.post(url, {
+      jsonrpc: '2.0', id: 'send-tx', method: 'sendTransaction',
+      params: [transaction, { encoding: 'base64', preflightCommitment: 'confirmed' }]
+    }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+    if (response.data.error) {
+      return res.status(400).json({ success: false, message: response.data.error.message || 'Transaction failed' });
+    }
+    const signature = response.data?.result;
+    if (!signature) return res.status(500).json({ success: false, message: 'No signature returned' });
+    return res.json({ success: true, data: { signature } });
+  } catch (e) { console.error('[solana/send-transaction]', e.message); res.status(500).json({ success: false, message: 'Failed to send transaction' }); }
+});
+
 // GET /api/v1/rewards/quote
 stakingRouter.get('/rewards/quote', verifyJWT, async (req, res) => {
   try {

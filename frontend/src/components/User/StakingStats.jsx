@@ -1,16 +1,16 @@
 // frontend/src/components/User/StakingStats.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '../../context/WalletContext';
-import { Connection, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { formatToken, formatSol } from '../../utils/format';
-import networkConfig from '../../config/network';
 import api from '../../services/api';
 
-const StakingStats = () => {
+const StakingStats = ({ walletNFTs = [] }) => {
   const { loading, getStakingStats, getStakedNFTs, calculateRewards, claimRewards, getClaimQuote, wallet, connected } = useWallet();
 
   const [stats, setStats] = useState({ totalStaked: 0, stakedByCollection: [], totalRewards: 0 });
   const [rewards, setRewards] = useState([]);
+  const [globalStats, setGlobalStats] = useState([]);
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsLoaded, setStatsLoaded] = useState(false);
 
@@ -37,15 +37,17 @@ const StakingStats = () => {
     try {
       loadingRef.current = true;
       setLoadingStats(true);
-      const [statsData, stakedNFTs, rewardsData] = await Promise.all([
+      const [statsData, stakedNFTs, rewardsData, globalData] = await Promise.all([
         getStakingStats(),
         getStakedNFTs(),
         calculateRewards(),
+        api.staking.getGlobalStats().then(r => r.data.data).catch(() => []),
       ]);
       const rewardsList = rewardsData || [];
       const totalRewards = rewardsList.reduce((t, r) => t + (r.amount || 0), 0);
       setStats({ totalStaked: stakedNFTs?.length || 0, stakedByCollection: statsData || [], totalRewards });
       setRewards(rewardsList);
+      setGlobalStats(globalData || []);
       setStatsLoaded(true);
     } catch (e) {
       console.error('Error loading stats:', e);
@@ -71,24 +73,31 @@ const StakingStats = () => {
     if (!connected) {
       setStats({ totalStaked: 0, stakedByCollection: [], totalRewards: 0 });
       setRewards([]);
+      setGlobalStats([]);
       setStatsLoaded(false);
     }
   }, [connected, statsLoaded, loadStats, loadAirdrops]);
 
-  // Payment helper
+  // Payment helper — routes through backend proxy to avoid CORS/403 on public RPC
   const createPaymentTx = useCallback(async (recipient, amountSOL) => {
     const lamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
+
+    // Get blockhash via backend proxy
+    const blockhashRes = await api.solana.getBlockhash();
+    const { blockhash } = blockhashRes.data.data;
+
     const tx = new Transaction().add(
       SystemProgram.transfer({ fromPubkey: wallet.adapter.publicKey, toPubkey: new PublicKey(recipient), lamports })
     );
-    const connection = new Connection(networkConfig.getRpcEndpoint(), 'confirmed');
-    const { blockhash } = await connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
     tx.feePayer = wallet.adapter.publicKey;
     const signed = await wallet.adapter.signTransaction(tx);
-    const sig = await connection.sendRawTransaction(signed.serialize());
-    await connection.confirmTransaction(sig, 'confirmed');
-    return sig;
+
+    // Send via backend proxy
+    const sendRes = await api.solana.sendTransaction(
+      Buffer.from(signed.serialize()).toString('base64')
+    );
+    return sendRes.data.data.signature;
   }, [wallet]);
 
   // Claim flow
@@ -183,6 +192,32 @@ const StakingStats = () => {
 
   const hasClaimableRewards = rewards.some(r => r.amount > 0);
 
+  // Build per-collection user staking data
+  // stakedByCollection: [{ id, name, staked_count }] — user's staked count per collection
+  // walletNFTs: NFTs in user's wallet (unstaked), each has collectionId
+  // We want: user staked + user wallet total per collection
+  const collectionStakingRows = React.useMemo(() => {
+    const walletCountByCollection = {};
+    walletNFTs.forEach(nft => {
+      if (nft.collectionId) {
+        walletCountByCollection[nft.collectionId] = (walletCountByCollection[nft.collectionId] || 0) + 1;
+      }
+    });
+    return stats.stakedByCollection.map(col => {
+      const stakedCount = parseInt(col.staked_count) || 0;
+      const walletCount = walletCountByCollection[col.id] || 0;
+      const totalOwned = stakedCount + walletCount;
+      return { ...col, stakedCount, totalOwned };
+    }).filter(col => col.totalOwned > 0 || col.stakedCount > 0);
+  }, [stats.stakedByCollection, walletNFTs]);
+
+  // Global stats map by collection id
+  const globalByCollection = React.useMemo(() => {
+    const map = {};
+    globalStats.forEach(g => { map[g.id] = g; });
+    return map;
+  }, [globalStats]);
+
   return (
     <div className="bg-[#111a11] border border-[#1e3a1e] rounded-xl shadow-[0_0_30px_rgba(34,197,94,0.1)] p-6 text-white">
 
@@ -195,11 +230,7 @@ const StakingStats = () => {
       )}
       {airdropSuccess && (
         <div className="bg-green-950/60 border border-green-700 text-green-400 px-4 py-3 rounded-xl mb-4 text-sm flex justify-between items-center">
-          <span>Claimed {airdropSuccess.tokenAmount} {airdropSuccess.tokenSymbol}!{' '}
-            {airdropSuccess.signature && (
-              <a href={networkConfig.getTransactionUrl(airdropSuccess.signature)} target="_blank" rel="noopener noreferrer" className="underline ml-1">View tx</a>
-            )}
-          </span>
+          <span>Claimed {airdropSuccess.tokenAmount} {airdropSuccess.tokenSymbol}!</span>
           <button onClick={() => setAirdropSuccess(null)} className="text-green-600 hover:text-green-400 ml-4">✕</button>
         </div>
       )}
@@ -210,51 +241,67 @@ const StakingStats = () => {
         </div>
       ) : (
         <>
-          {/* Stats row */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 hover:border-green-600 transition-colors">
-              <div className="text-xs text-green-600 uppercase tracking-widest mb-1">NFTs Staked</div>
-              <div className="text-3xl font-bold text-green-400">{stats.totalStaked}</div>
+          {/* 50/50 layout: left = collection staking table, right = Total Rewards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+
+            {/* Left: Collection-wise user staking */}
+            <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4">
+              <div className="text-xs text-green-600 uppercase tracking-widest mb-3">Your Staking</div>
+              {collectionStakingRows.length === 0 ? (
+                <div className="text-sm text-green-800 py-2">No NFTs staked yet</div>
+              ) : (
+                <div className="space-y-2">
+                  {collectionStakingRows.map(col => (
+                    <div key={col.id} className="flex justify-between items-center text-sm">
+                      <span className="text-gray-300">{col.name}</span>
+                      <span className="font-semibold text-green-400">
+                        {col.stakedCount}/{col.totalOwned}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Global totals line */}
+              {globalStats.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-[#1e3a1e]">
+                  <div className="text-xs text-green-800">
+                    Total staked:{' '}
+                    {globalStats.map((g, i) => (
+                      <span key={g.id}>
+                        {g.name} — {g.global_staked_count}/{g.hashlist_count || '?'}
+                        {i < globalStats.length - 1 && <span className="mx-1 text-green-900">|</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 hover:border-green-600 transition-colors">
-              <div className="text-xs text-green-600 uppercase tracking-widest mb-1">Active Collections</div>
-              <div className="text-3xl font-bold text-green-400">
-                {stats.stakedByCollection.filter(c => c.staked_count > 0).length}
-              </div>
-            </div>
-            {/* Total Rewards + Claim button */}
-            <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 hover:border-green-600 transition-colors flex items-center justify-between">
+
+            {/* Right: Total Rewards + Claim */}
+            <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 flex flex-col justify-between">
               <div>
                 <div className="text-xs text-green-600 uppercase tracking-widest mb-1">Total Rewards</div>
-                <div className="text-3xl font-bold text-green-400">{stats.totalRewards.toFixed(4)}</div>
+                <div className="text-4xl font-bold text-green-400 mb-1">{stats.totalRewards.toFixed(4)}</div>
+                {rewards.length > 0 && (
+                  <div className="space-y-0.5 mt-2">
+                    {rewards.map((r, i) => (
+                      <div key={i} className="text-xs text-green-700">
+                        {formatToken(r.amount)} {r.token_symbol}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <button
                 onClick={handleClaimClick}
                 disabled={!hasClaimableRewards || claimProcessing}
-                className="ml-4 px-4 py-2 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] disabled:bg-green-900 disabled:text-green-700 disabled:shadow-none disabled:cursor-not-allowed whitespace-nowrap"
+                className="mt-4 w-full py-2.5 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] disabled:bg-green-900 disabled:text-green-700 disabled:shadow-none disabled:cursor-not-allowed"
               >
-                {claimProcessing ? '...' : 'Claim'}
+                {claimProcessing ? 'Processing...' : 'Claim Rewards'}
               </button>
             </div>
           </div>
-
-          {/* Collection breakdown */}
-          {stats.stakedByCollection.filter(c => c.staked_count > 0).length > 0 && (
-            <div className="mb-6">
-              <div className="text-xs text-green-600 uppercase tracking-widest mb-3">By Collection</div>
-              <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl overflow-hidden">
-                <div className="grid grid-cols-2 text-xs font-semibold text-green-600 uppercase tracking-widest px-4 py-2 border-b border-[#1e3a1e]">
-                  <div>Collection</div><div className="text-right">Staked</div>
-                </div>
-                {stats.stakedByCollection.filter(c => c.staked_count > 0).map(c => (
-                  <div key={c.id} className="grid grid-cols-2 text-sm px-4 py-2 border-b border-[#1e3a1e] last:border-0 hover:bg-[#111a11] transition-colors">
-                    <div className="text-gray-300">{c.name}</div>
-                    <div className="text-right font-semibold text-green-400">{c.staked_count}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Airdrops section */}
           {(airdrops.length > 0 || airdropError) && (

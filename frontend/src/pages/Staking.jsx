@@ -80,7 +80,7 @@ const Staking = () => {
 
         {/* Stats + Airdrops */}
         <div className="mb-8">
-          <StakingStats />
+          <StakingStats walletNFTs={walletNFTs} />
         </div>
 
         {/* NFT Panel - full width */}

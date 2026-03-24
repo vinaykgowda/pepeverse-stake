@@ -93,6 +93,7 @@ const nftApi = {
 // Staking API calls
 const stakingApi = {
   getStakingStats: () => api.get('/staking/stats'),
+  getGlobalStats: () => api.get('/staking/global-stats'),
   calculateRewards: () => api.get('/rewards/calculate'),
 
   // NEW: Get claim quote (includes fees)
@@ -189,6 +190,12 @@ const adminApi = {
   }
 };
 
+// Solana RPC proxy (routes through backend to avoid CORS/rate-limit on public RPC)
+const solanaApi = {
+  getBlockhash: () => api.get('/solana/blockhash'),
+  sendTransaction: (transactionBase64) => api.post('/solana/send-transaction', { transaction: transactionBase64 }),
+};
+
 // User-facing airdrop API calls (uses wallet JWT via x-auth-token header)
 const userApi = {
   getAirdrops: (walletAddress) => api.get(`/user/airdrops/${walletAddress}`),
@@ -201,5 +208,6 @@ export default {
   nft: nftApi,
   staking: stakingApi,
   admin: adminApi,
-  user: userApi
+  user: userApi,
+  solana: solanaApi
 };
