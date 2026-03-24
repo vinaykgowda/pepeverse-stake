@@ -127,12 +127,50 @@ async function generateSnapshot(airdropConfigId, client) {
 router.get('/dashboard', verifyJWT, verifyAdmin, async (req, res) => {
   try {
     const pool = getPool();
-    const [collectionsRes, stakedRes, walletsRes, rewardsRes] = await Promise.all([
+    const [collectionsRes, stakedRes, walletsRes, rewardsRes, collectionDetailRes, rewardRatesRes, activeAirdropRes] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS total FROM collections`),
       pool.query(`SELECT COUNT(*) AS total FROM staked_nfts`),
       pool.query(`SELECT COUNT(DISTINCT owner_wallet) AS total FROM staked_nfts`),
       pool.query(`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_type = 'CLAIM' AND status = 'completed'`),
+      // Per-collection breakdown: name, staked count
+      pool.query(`
+        SELECT c.id, c.name, c.stake_fee, c.unstake_fee, c.claim_fee,
+          COUNT(sn.id) AS staked_count,
+          COUNT(DISTINCT sn.owner_wallet) AS unique_stakers
+        FROM collections c
+        LEFT JOIN staked_nfts sn ON sn.collection_id = c.id
+        GROUP BY c.id, c.name, c.stake_fee, c.unstake_fee, c.claim_fee
+        ORDER BY c.id
+      `),
+      // Daily rewards per token: base rate * staked count + trait bonuses
+      pool.query(`
+        SELECT
+          cr.token_symbol,
+          cr.token_address,
+          SUM(cr.daily_rate) AS base_daily_per_nft,
+          COUNT(sn.id) AS staked_count,
+          SUM(cr.daily_rate) * COUNT(sn.id) AS base_daily_total
+        FROM collection_rewards cr
+        JOIN staked_nfts sn ON sn.collection_id = cr.collection_id
+        WHERE cr.is_active = true
+        GROUP BY cr.token_symbol, cr.token_address
+      `),
+      // Active airdrops
+      pool.query(`
+        SELECT ac.id, ac.token_symbol, ac.amount_per_nft, ac.airdrop_type,
+          ac.expires_at, c.name AS collection_name,
+          COUNT(snap.id) AS total_eligible,
+          COUNT(CASE WHEN snap.claimed = true THEN 1 END) AS claimed_count,
+          COALESCE(SUM(snap.token_amount), 0) AS total_tokens
+        FROM airdrop_configs ac
+        JOIN collections c ON ac.collection_id = c.id
+        LEFT JOIN airdrop_snapshots snap ON snap.airdrop_config_id = ac.id
+        WHERE ac.status = 'active' AND ac.expires_at > NOW()
+        GROUP BY ac.id, ac.token_symbol, ac.amount_per_nft, ac.airdrop_type, ac.expires_at, c.name
+        ORDER BY ac.expires_at ASC
+      `),
     ]);
+
     return res.json({
       success: true,
       data: {
@@ -140,6 +178,31 @@ router.get('/dashboard', verifyJWT, verifyAdmin, async (req, res) => {
         total_staked_nfts: parseInt(stakedRes.rows[0].total),
         total_staking_wallets: parseInt(walletsRes.rows[0].total),
         total_rewards_distributed: parseFloat(rewardsRes.rows[0].total),
+        collections: collectionDetailRes.rows.map(r => ({
+          id: r.id,
+          name: r.name,
+          staked_count: parseInt(r.staked_count),
+          unique_stakers: parseInt(r.unique_stakers),
+          stake_fee: parseFloat(r.stake_fee || 0),
+          unstake_fee: parseFloat(r.unstake_fee || 0),
+          claim_fee: parseFloat(r.claim_fee || 0),
+        })),
+        daily_rewards: rewardRatesRes.rows.map(r => ({
+          token_symbol: r.token_symbol,
+          token_address: r.token_address,
+          staked_count: parseInt(r.staked_count),
+          daily_total: parseFloat(r.base_daily_total || 0),
+        })),
+        active_airdrops: activeAirdropRes.rows.map(r => ({
+          id: r.id,
+          collection_name: r.collection_name,
+          token_symbol: r.token_symbol,
+          airdrop_type: r.airdrop_type,
+          total_eligible: parseInt(r.total_eligible),
+          claimed_count: parseInt(r.claimed_count),
+          total_tokens: parseFloat(r.total_tokens),
+          expires_at: r.expires_at,
+        })),
       }
     });
   } catch (error) {
