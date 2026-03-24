@@ -470,6 +470,7 @@ stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
 });
 
 // POST /api/v1/nfts/stake — record staking in DB
+stakingRouter.post('/nfts/stake', verifyJWT, async (req, res) => {
   try {
     const { nfts, collectionId, paymentSignature } = req.body;
     if (!nfts || !Array.isArray(nfts) || nfts.length === 0 || !collectionId) {
