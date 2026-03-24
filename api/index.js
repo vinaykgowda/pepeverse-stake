@@ -214,6 +214,27 @@ heliusRouter.post('/nfts/by-owner', async (req, res) => {
   }
 });
 
+// POST /api/v1/helius/nfts/metadata — fetch token symbol/decimals via Helius getAsset
+heliusRouter.post('/nfts/metadata', async (req, res) => {
+  try {
+    const { mintAddress } = req.body;
+    if (!mintAddress) return res.status(400).json({ success: false, error: 'mintAddress is required' });
+    const endpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+    const apiKey = process.env.HELIUS_API_KEY;
+    if (!endpoint || !apiKey) return res.status(500).json({ success: false, error: 'Helius not configured' });
+    const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
+    const response = await axios.post(url, {
+      jsonrpc: '2.0', id: 'get-asset', method: 'getAsset',
+      params: { id: mintAddress }
+    }, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+    if (response.data.error) return res.status(400).json({ success: false, error: response.data.error.message });
+    return res.json({ success: true, data: response.data.result });
+  } catch (e) {
+    console.error('[helius/nfts/metadata]', e.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch token metadata' });
+  }
+});
+
 app.use('/api/v1/helius', heliusRouter);
 
 // ── Admin routes ─────────────────────────────────────────────────────────────
@@ -354,6 +375,36 @@ stakingRouter.get('/collections', async (req, res) => {
     );
     res.json({ success: true, data: result.rows });
   } catch (e) { console.error('[collections]', e.message); res.status(500).json({ success: false, message: 'Failed to get collections' }); }
+});
+
+// PUT /api/v1/collections/:id — used by FeeManager and CollectionManager (updateCollection in api.js)
+const multer = require('multer');
+const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+stakingRouter.put('/collections/:id', verifyJWT, _upload.single('hashlist'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT * FROM collections WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Collection not found' });
+    const { name, creator_address, stake_fee, unstake_fee, claim_fee } = req.body;
+    const updates = [], values = [];
+    let p = 1;
+    if (name !== undefined) { updates.push(`name = $${p++}`); values.push(name); }
+    if (creator_address !== undefined) { updates.push(`creator_address = $${p++}`); values.push(creator_address); }
+    if (stake_fee !== undefined) { updates.push(`stake_fee = $${p++}`); values.push(parseFloat(stake_fee)); }
+    if (unstake_fee !== undefined) { updates.push(`unstake_fee = $${p++}`); values.push(parseFloat(unstake_fee)); }
+    if (claim_fee !== undefined) { updates.push(`claim_fee = $${p++}`); values.push(parseFloat(claim_fee)); }
+    if (req.file) {
+      const raw = req.file.buffer.toString('utf8');
+      let hashlistText;
+      try { const arr = JSON.parse(raw); hashlistText = Array.isArray(arr) ? arr.join('+\n') + '+\n' : raw; } catch { hashlistText = raw; }
+      updates.push(`hashlist = $${p++}`); values.push(hashlistText);
+    }
+    if (updates.length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
+    values.push(id);
+    const result = await pool.query(`UPDATE collections SET ${updates.join(', ')} WHERE id = $${p} RETURNING *`, values);
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (e) { console.error('[PUT /collections/:id]', e.message); res.status(500).json({ success: false, message: 'Failed to update collection' }); }
 });
 
 app.use('/api/v1', stakingRouter);

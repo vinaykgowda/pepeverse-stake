@@ -21,8 +21,14 @@ api.interceptors.request.use(
 
     // Check for admin token (for admin routes)
     const adminToken = localStorage.getItem('adminToken');
-    if (adminToken && config.url.includes('/admin')) {
-      config.headers['Authorization'] = `Bearer ${adminToken}`;
+    if (adminToken) {
+      if (config.url.includes('/admin')) {
+        config.headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+      // Also set x-auth-token for admin so non-/admin routes (e.g. PUT /collections/:id) work
+      if (!walletToken) {
+        config.headers['x-auth-token'] = adminToken;
+      }
     }
 
     return config;

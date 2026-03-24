@@ -6,6 +6,8 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const axios = require('axios');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ── Inline DB pool ──────────────────────────────────────────────────────────
 let _pool = null;
@@ -588,6 +590,434 @@ router.get('/analytics/airdrop-claims', verifyJWT, verifyAdmin, async (req, res)
   } catch (error) {
     console.error('Error in GET /admin/analytics/airdrop-claims:', error);
     return res.status(500).json({ success: false, message: 'Failed to fetch airdrop claims analytics' });
+  }
+});
+
+// ── Collections CRUD ────────────────────────────────────────────────────────
+
+// GET /api/v1/admin/collections
+router.get('/collections', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const pool = getPool();
+    const result = await pool.query(`
+      SELECT c.*,
+        (SELECT COUNT(*) FROM staked_nfts sn WHERE sn.collection_id = c.id) AS staked_count,
+        CASE
+          WHEN c.hashlist IS NOT NULL
+          THEN array_length(regexp_split_to_array(trim(c.hashlist), E'\\\\+\\n|\\n\\\\+|\\\\+'), 1)
+          ELSE 0
+        END AS hashlist_count
+      FROM collections c ORDER BY c.id
+    `);
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error in GET /admin/collections:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch collections' });
+  }
+});
+
+// POST /api/v1/admin/collections — multipart/form-data
+router.post('/collections', verifyJWT, verifyAdmin, upload.single('hashlist'), async (req, res) => {
+  try {
+    const { name, creator_address } = req.body;
+    if (!name || !creator_address) return res.status(400).json({ success: false, message: 'name and creator_address are required' });
+
+    let hashlistText = null;
+    if (req.file) {
+      const raw = req.file.buffer.toString('utf8');
+      // Support JSON array or newline-separated
+      try {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) hashlistText = arr.join('+\n') + '+\n';
+        else hashlistText = raw;
+      } catch {
+        hashlistText = raw;
+      }
+    }
+
+    const pool = getPool();
+    const result = await pool.query(
+      `INSERT INTO collections (name, creator_address, hashlist, stake_fee, unstake_fee, claim_fee)
+       VALUES ($1, $2, $3, 0.001, 0.001, 0.001) RETURNING *`,
+      [name, creator_address, hashlistText]
+    );
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in POST /admin/collections:', error);
+    return res.status(500).json({ success: false, message: 'Failed to create collection' });
+  }
+});
+
+// PUT /api/v1/admin/collections/:id — handles both JSON and multipart
+router.put('/collections/:id', verifyJWT, verifyAdmin, upload.single('hashlist'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT * FROM collections WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Collection not found' });
+
+    const { name, creator_address, stake_fee, unstake_fee, claim_fee } = req.body;
+    const updates = [], values = [];
+    let p = 1;
+    if (name !== undefined) { updates.push(`name = $${p++}`); values.push(name); }
+    if (creator_address !== undefined) { updates.push(`creator_address = $${p++}`); values.push(creator_address); }
+    if (stake_fee !== undefined) { updates.push(`stake_fee = $${p++}`); values.push(parseFloat(stake_fee)); }
+    if (unstake_fee !== undefined) { updates.push(`unstake_fee = $${p++}`); values.push(parseFloat(unstake_fee)); }
+    if (claim_fee !== undefined) { updates.push(`claim_fee = $${p++}`); values.push(parseFloat(claim_fee)); }
+    if (req.file) {
+      const raw = req.file.buffer.toString('utf8');
+      let hashlistText;
+      try {
+        const arr = JSON.parse(raw);
+        hashlistText = Array.isArray(arr) ? arr.join('+\n') + '+\n' : raw;
+      } catch { hashlistText = raw; }
+      updates.push(`hashlist = $${p++}`); values.push(hashlistText);
+    }
+    if (updates.length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
+    values.push(id);
+    const result = await pool.query(`UPDATE collections SET ${updates.join(', ')} WHERE id = $${p} RETURNING *`, values);
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in PUT /admin/collections/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update collection' });
+  }
+});
+
+// DELETE /api/v1/admin/collections/:id
+router.delete('/collections/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT id FROM collections WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Collection not found' });
+    await pool.query('DELETE FROM collections WHERE id = $1', [id]);
+    return res.json({ success: true, message: 'Collection deleted' });
+  } catch (error) {
+    console.error('Error in DELETE /admin/collections/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete collection' });
+  }
+});
+
+// ── Collection Rewards CRUD ──────────────────────────────────────────────────
+
+// GET /api/v1/admin/rewards
+router.get('/rewards', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const pool = getPool();
+    const result = await pool.query(`
+      SELECT cr.*, c.name AS collection_name
+      FROM collection_rewards cr
+      JOIN collections c ON cr.collection_id = c.id
+      ORDER BY cr.id
+    `);
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error in GET /admin/rewards:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch rewards' });
+  }
+});
+
+// POST /api/v1/admin/rewards
+router.post('/rewards', verifyJWT, verifyAdmin, async (req, res) => {
+  const { collection_id, token_address, token_symbol, token_decimals, daily_rate } = req.body;
+  if (!collection_id || !token_address || !token_symbol || daily_rate === undefined)
+    return res.status(400).json({ success: false, message: 'collection_id, token_address, token_symbol, daily_rate are required' });
+  try {
+    const pool = getPool();
+    const result = await pool.query(
+      `INSERT INTO collection_rewards (collection_id, token_address, token_symbol, token_decimals, daily_rate, is_active)
+       VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
+      [collection_id, token_address, token_symbol, token_decimals ?? 9, daily_rate]
+    );
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in POST /admin/rewards:', error);
+    return res.status(500).json({ success: false, message: 'Failed to create reward' });
+  }
+});
+
+// PUT /api/v1/admin/rewards/:id
+router.put('/rewards/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { collection_id, token_address, token_symbol, token_decimals, daily_rate, is_active } = req.body;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT id FROM collection_rewards WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Reward not found' });
+    const updates = [], values = [];
+    let p = 1;
+    if (collection_id !== undefined) { updates.push(`collection_id = $${p++}`); values.push(collection_id); }
+    if (token_address !== undefined) { updates.push(`token_address = $${p++}`); values.push(token_address); }
+    if (token_symbol !== undefined) { updates.push(`token_symbol = $${p++}`); values.push(token_symbol); }
+    if (token_decimals !== undefined) { updates.push(`token_decimals = $${p++}`); values.push(token_decimals); }
+    if (daily_rate !== undefined) { updates.push(`daily_rate = $${p++}`); values.push(daily_rate); }
+    if (is_active !== undefined) { updates.push(`is_active = $${p++}`); values.push(is_active); }
+    if (updates.length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
+    values.push(id);
+    const result = await pool.query(`UPDATE collection_rewards SET ${updates.join(', ')} WHERE id = $${p} RETURNING *`, values);
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in PUT /admin/rewards/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update reward' });
+  }
+});
+
+// DELETE /api/v1/admin/rewards/:id
+router.delete('/rewards/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT id FROM collection_rewards WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Reward not found' });
+    await pool.query('DELETE FROM collection_rewards WHERE id = $1', [id]);
+    return res.json({ success: true, message: 'Reward deleted' });
+  } catch (error) {
+    console.error('Error in DELETE /admin/rewards/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete reward' });
+  }
+});
+
+// ── Trait Rewards CRUD ───────────────────────────────────────────────────────
+
+// GET /api/v1/admin/trait-rewards
+router.get('/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const pool = getPool();
+    const result = await pool.query(`
+      SELECT tr.*, c.name AS collection_name
+      FROM trait_rewards tr
+      JOIN collections c ON tr.collection_id = c.id
+      ORDER BY tr.id
+    `);
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error in GET /admin/trait-rewards:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch trait rewards' });
+  }
+});
+
+// POST /api/v1/admin/trait-rewards
+router.post('/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => {
+  const { collection_id, trait_type, trait_value, token_address, token_symbol, multiplier } = req.body;
+  if (!collection_id || !trait_type || !trait_value || !token_address || !token_symbol || multiplier === undefined)
+    return res.status(400).json({ success: false, message: 'collection_id, trait_type, trait_value, token_address, token_symbol, multiplier are required' });
+  try {
+    const pool = getPool();
+    const result = await pool.query(
+      `INSERT INTO trait_rewards (collection_id, trait_type, trait_value, token_address, token_symbol, multiplier, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING *`,
+      [collection_id, trait_type, trait_value, token_address, token_symbol, multiplier]
+    );
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in POST /admin/trait-rewards:', error);
+    return res.status(500).json({ success: false, message: 'Failed to create trait reward' });
+  }
+});
+
+// PUT /api/v1/admin/trait-rewards/:id
+router.put('/trait-rewards/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { collection_id, trait_type, trait_value, token_address, token_symbol, multiplier, is_active } = req.body;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT id FROM trait_rewards WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Trait reward not found' });
+    const updates = [], values = [];
+    let p = 1;
+    if (collection_id !== undefined) { updates.push(`collection_id = $${p++}`); values.push(collection_id); }
+    if (trait_type !== undefined) { updates.push(`trait_type = $${p++}`); values.push(trait_type); }
+    if (trait_value !== undefined) { updates.push(`trait_value = $${p++}`); values.push(trait_value); }
+    if (token_address !== undefined) { updates.push(`token_address = $${p++}`); values.push(token_address); }
+    if (token_symbol !== undefined) { updates.push(`token_symbol = $${p++}`); values.push(token_symbol); }
+    if (multiplier !== undefined) { updates.push(`multiplier = $${p++}`); values.push(multiplier); }
+    if (is_active !== undefined) { updates.push(`is_active = $${p++}`); values.push(is_active); }
+    if (updates.length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
+    values.push(id);
+    const result = await pool.query(`UPDATE trait_rewards SET ${updates.join(', ')} WHERE id = $${p} RETURNING *`, values);
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in PUT /admin/trait-rewards/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update trait reward' });
+  }
+});
+
+// DELETE /api/v1/admin/trait-rewards/:id
+router.delete('/trait-rewards/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT id FROM trait_rewards WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Trait reward not found' });
+    await pool.query('DELETE FROM trait_rewards WHERE id = $1', [id]);
+    return res.json({ success: true, message: 'Trait reward deleted' });
+  } catch (error) {
+    console.error('Error in DELETE /admin/trait-rewards/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete trait reward' });
+  }
+});
+
+// ── Admin Managers CRUD ──────────────────────────────────────────────────────
+
+// GET /api/v1/admin/managers
+router.get('/managers', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const pool = getPool();
+    const result = await pool.query(
+      `SELECT id, username, email, is_super_admin, last_login, created_at FROM admins ORDER BY id`
+    );
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error in GET /admin/managers:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch admins' });
+  }
+});
+
+// POST /api/v1/admin/managers
+router.post('/managers', verifyJWT, verifyAdmin, async (req, res) => {
+  const { username, password, email } = req.body;
+  if (!username || !password) return res.status(400).json({ success: false, message: 'username and password are required' });
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT id FROM admins WHERE username = $1', [username]);
+    if (existing.rows.length > 0) return res.status(409).json({ success: false, message: 'Username already exists' });
+
+    let hashedPassword = password;
+    try {
+      const bcrypt = require('bcrypt');
+      hashedPassword = await bcrypt.hash(password, 10);
+    } catch (bcryptErr) {
+      console.error('[managers/post] bcrypt unavailable:', bcryptErr.message);
+    }
+
+    const result = await pool.query(
+      `INSERT INTO admins (username, password, email, is_super_admin) VALUES ($1, $2, $3, false) RETURNING id, username, email, is_super_admin, created_at`,
+      [username, hashedPassword, email || null]
+    );
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in POST /admin/managers:', error);
+    return res.status(500).json({ success: false, message: 'Failed to create admin' });
+  }
+});
+
+// DELETE /api/v1/admin/managers/:id
+router.delete('/managers/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT id, is_super_admin, username FROM admins WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Admin not found' });
+    if (existing.rows[0].is_super_admin) return res.status(403).json({ success: false, message: 'Cannot delete super admin' });
+    if (req.user.adminId && parseInt(id) === req.user.adminId) return res.status(403).json({ success: false, message: 'Cannot delete yourself' });
+    await pool.query('DELETE FROM admins WHERE id = $1', [id]);
+    return res.json({ success: true, message: 'Admin removed' });
+  } catch (error) {
+    console.error('Error in DELETE /admin/managers/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete admin' });
+  }
+});
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+// GET /api/v1/admin/settings
+router.get('/settings', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const pool = getPool();
+    const result = await pool.query(`SELECT key_name, value, description FROM settings ORDER BY key_name`);
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error in GET /admin/settings:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch settings' });
+  }
+});
+
+// PUT /api/v1/admin/settings
+router.put('/settings', verifyJWT, verifyAdmin, async (req, res) => {
+  const { settings } = req.body;
+  if (!Array.isArray(settings) || settings.length === 0)
+    return res.status(400).json({ success: false, message: 'settings must be a non-empty array of { key_name, value }' });
+  try {
+    const pool = getPool();
+    for (const { key_name, value } of settings) {
+      if (!key_name) continue;
+      await pool.query(
+        `INSERT INTO settings (key_name, value) VALUES ($1, $2)
+         ON CONFLICT (key_name) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [key_name, value]
+      );
+    }
+    const result = await pool.query(`SELECT key_name, value, description FROM settings ORDER BY key_name`);
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error in PUT /admin/settings:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update settings' });
+  }
+});
+
+// ── Profile ───────────────────────────────────────────────────────────────────
+
+// GET /api/v1/admin/profile/:id
+router.get('/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = getPool();
+    const result = await pool.query(
+      `SELECT id, username, email, is_super_admin, last_login, created_at FROM admins WHERE id = $1`, [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Admin not found' });
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in GET /admin/profile/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch profile' });
+  }
+});
+
+// PUT /api/v1/admin/profile/:id
+router.put('/profile/:id', verifyJWT, verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { username, email, password, currentPassword } = req.body;
+  try {
+    const pool = getPool();
+    const existing = await pool.query('SELECT * FROM admins WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Admin not found' });
+    const admin = existing.rows[0];
+
+    const updates = [], values = [];
+    let p = 1;
+    if (username !== undefined) { updates.push(`username = $${p++}`); values.push(username); }
+    if (email !== undefined) { updates.push(`email = $${p++}`); values.push(email); }
+
+    if (password) {
+      if (!currentPassword) return res.status(400).json({ success: false, message: 'currentPassword is required to change password' });
+      let passwordMatch = false;
+      try {
+        const bcrypt = require('bcrypt');
+        const isBcryptHash = admin.password && (admin.password.startsWith('$2b$') || admin.password.startsWith('$2a$'));
+        passwordMatch = isBcryptHash ? await bcrypt.compare(currentPassword, admin.password) : currentPassword === admin.password;
+      } catch {
+        passwordMatch = currentPassword === admin.password;
+      }
+      if (!passwordMatch) return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+
+      let newHash = password;
+      try {
+        const bcrypt = require('bcrypt');
+        newHash = await bcrypt.hash(password, 10);
+      } catch {}
+      updates.push(`password = $${p++}`); values.push(newHash);
+    }
+
+    if (updates.length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
+    values.push(id);
+    const result = await pool.query(
+      `UPDATE admins SET ${updates.join(', ')} WHERE id = $${p} RETURNING id, username, email, is_super_admin, last_login, created_at`,
+      values
+    );
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error in PUT /admin/profile/:id:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update profile' });
   }
 });
 
