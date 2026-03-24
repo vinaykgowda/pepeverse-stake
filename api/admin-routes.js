@@ -121,6 +121,31 @@ async function generateSnapshot(airdropConfigId, client) {
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
+// GET /api/v1/admin/dashboard
+router.get('/dashboard', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const pool = getPool();
+    const [collectionsRes, stakedRes, walletsRes, rewardsRes] = await Promise.all([
+      pool.query(`SELECT COUNT(*) AS total FROM collections`),
+      pool.query(`SELECT COUNT(*) AS total FROM staked_nfts`),
+      pool.query(`SELECT COUNT(DISTINCT owner_wallet) AS total FROM staked_nfts`),
+      pool.query(`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_type = 'CLAIM' AND status = 'completed'`),
+    ]);
+    return res.json({
+      success: true,
+      data: {
+        total_collections: parseInt(collectionsRes.rows[0].total),
+        total_staked_nfts: parseInt(stakedRes.rows[0].total),
+        total_staking_wallets: parseInt(walletsRes.rows[0].total),
+        total_rewards_distributed: parseFloat(rewardsRes.rows[0].total),
+      }
+    });
+  } catch (error) {
+    console.error('Error in GET /admin/dashboard:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch dashboard stats' });
+  }
+});
+
 // GET /api/v1/admin/token-balances
 router.get('/token-balances', verifyJWT, verifyAdmin, async (req, res) => {
   try {
