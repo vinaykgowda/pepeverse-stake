@@ -1,167 +1,54 @@
 // frontend/src/components/Layout/Sidebar.jsx
-
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 const Sidebar = () => {
   const { isAdmin, isSuperAdmin, logout } = useAuth();
-
   const location = useLocation();
 
-  if (!isAdmin) {
-    return null;
-  }
+  if (!isAdmin) return null;
+
+  const link = (to, label) => (
+    <Link
+      key={to}
+      to={to}
+      className={`block px-4 py-2 rounded-lg text-sm transition-all ${
+        location.pathname === to
+          ? 'bg-green-500 text-black font-semibold shadow-[0_0_10px_rgba(34,197,94,0.3)]'
+          : 'text-green-700 hover:text-green-400 hover:bg-[#1e3a1e]/40'
+      }`}
+    >
+      {label}
+    </Link>
+  );
 
   return (
-    <div className="h-screen w-64 bg-gray-800 text-white fixed left-0 top-0 pt-16">
-      <div className="p-4">
-        <h2 className="text-xl font-semibold mb-6">Admin Panel</h2>
-
-        <nav className="space-y-2">
-          <Link
-            to="/admin"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Dashboard
-          </Link>
-
-          <Link
-            to="/admin/collections"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/collections'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Collections
-          </Link>
-
-          <Link
-            to="/admin/rewards"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/rewards'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Rewards
-          </Link>
-
-          <Link
-            to="/admin/traits"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/traits'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Trait Rewards
-          </Link>
-
-          <Link
-            to="/admin/fees"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/fees'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Fees
-          </Link>
-
-          {isSuperAdmin && (
-            <>
-              <Link
-                to="/admin/admins"
-                className={`block px-4 py-2 rounded ${
-                  location.pathname === '/admin/admins'
-                    ? 'bg-gray-700 text-white'
-                    : 'text-gray-300 hover:bg-gray-700'
-                }`}
-              >
-                Admin Managers
-              </Link>
-
-              <Link
-                to="/admin/wallet"
-                className={`block px-4 py-2 rounded ${
-                  location.pathname === '/admin/wallet'
-                    ? 'bg-gray-700 text-white'
-                    : 'text-gray-300 hover:bg-gray-700'
-                }`}
-              >
-                Wallet Setup
-              </Link>
-            </>
-          )}
-
-          <Link
-            to="/admin/settings"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/settings'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Settings
-          </Link>
-
-          <Link
-            to="/admin/airdrops"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/airdrops'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Airdrops
-          </Link>
-
-          <Link
-            to="/admin/analytics/claims"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/analytics/claims'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Claims Analytics
-          </Link>
-
-          <Link
-            to="/admin/analytics/airdrop-claims"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/analytics/airdrop-claims'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Airdrop Analytics
-          </Link>
-
-          <Link
-            to="/admin/profile"
-            className={`block px-4 py-2 rounded ${
-              location.pathname === '/admin/profile'
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Profile
-          </Link>
-
-          <button onClick={logout}
-                      className="block w-full text-left px-4 py-2 rounded text-red-400 hover:bg-gray-700"
-                    >
-                      Logout
-                    </button>
-        </nav>
+    <div className="h-screen w-64 bg-[#0d1a0d] border-r border-[#1e3a1e] text-white fixed left-0 top-0 pt-4">
+      <div className="px-4 mb-6">
+        <div className="text-green-400 font-bold text-lg tracking-wide">PEPE GODS</div>
+        <div className="text-green-700 text-xs">Admin Panel</div>
       </div>
+      <nav className="px-3 space-y-1">
+        {link('/admin', 'Dashboard')}
+        {link('/admin/collections', 'Collections')}
+        {link('/admin/rewards', 'Rewards')}
+        {link('/admin/traits', 'Trait Rewards')}
+        {link('/admin/fees', 'Fees')}
+        {link('/admin/airdrops', 'Airdrops')}
+        {link('/admin/analytics/claims', 'Claims Analytics')}
+        {link('/admin/analytics/airdrop-claims', 'Airdrop Analytics')}
+        {isSuperAdmin && link('/admin/admins', 'Admin Managers')}
+        {isSuperAdmin && link('/admin/wallet', 'Wallet Setup')}
+        {link('/admin/settings', 'Settings')}
+        {link('/admin/profile', 'Profile')}
+        <button
+          onClick={logout}
+          className="block w-full text-left px-4 py-2 rounded-lg text-sm text-red-500 hover:text-red-400 hover:bg-[#1e3a1e]/40 transition-all mt-4"
+        >
+          Logout
+        </button>
+      </nav>
     </div>
   );
 };

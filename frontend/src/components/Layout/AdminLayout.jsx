@@ -3,9 +3,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import Navbar from './Navbar';
 import Sidebar from './Sidebar';
-import Footer from './Footer';
 
 const AdminLayout = ({ children }) => {
   const { isAuthenticated, isAdmin, loading } = useAuth();
@@ -28,22 +26,17 @@ const AdminLayout = ({ children }) => {
 
   return (
     <div className="flex flex-col min-h-screen">
-
-
-
       <div className="flex flex-1">
         <Sidebar />
-
-        <main className="ml-64 w-full flex-1 bg-gray-100">
-         <Navbar />
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="ml-64 w-full flex-1 bg-[#0a0f0a]">
+          <div className="bg-[#0d1a0d] border-b border-[#1e3a1e] px-8 h-14 flex items-center">
+            <span className="text-green-400 font-semibold text-sm tracking-wide">Admin Panel</span>
+          </div>
+          <div className="max-w-7xl mx-auto px-6 py-8">
             {children}
           </div>
-
         </main>
       </div>
-
-
     </div>
   );
 };
