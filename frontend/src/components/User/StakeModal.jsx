@@ -77,7 +77,7 @@ const StakeModal = ({ selectedNFTs, walletNFTs, collections, onSuccess, onClose 
 
         // Send via backend proxy
         const sendRes = await api.solana.sendTransaction(
-          Buffer.from(signed.serialize()).toString('base64')
+          btoa(String.fromCharCode(...signed.serialize()))
         );
         paymentSignature = sendRes.data.data.signature;
       }

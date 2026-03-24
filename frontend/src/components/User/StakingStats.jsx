@@ -95,7 +95,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
 
     // Send via backend proxy
     const sendRes = await api.solana.sendTransaction(
-      Buffer.from(signed.serialize()).toString('base64')
+      btoa(String.fromCharCode(...signed.serialize()))
     );
     return sendRes.data.data.signature;
   }, [wallet]);

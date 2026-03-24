@@ -469,7 +469,7 @@ stakingRouter.get('/staking/global-stats', async (req, res) => {
               COUNT(sn.id) AS global_staked_count,
               CASE
                 WHEN c.hashlist IS NOT NULL AND c.hashlist != ''
-                THEN array_length(regexp_split_to_array(trim(c.hashlist), E'\\\\+\\n|\\n\\\\+|\\\\+'), 1)
+                THEN (LENGTH(c.hashlist) - LENGTH(REPLACE(c.hashlist, E'+\\n', ''))) / 2
                 ELSE 0
               END AS hashlist_count
        FROM collections c
