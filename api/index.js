@@ -350,7 +350,7 @@ stakingRouter.get('/rewards/calculate', verifyJWT, async (req, res) => {
 stakingRouter.get('/collections', async (req, res) => {
   try {
     const result = await getPool().query(
-      `SELECT id, name, creator_address, stake_fee, unstake_fee, created_at FROM collections ORDER BY id`
+      `SELECT id, name, creator_address, stake_fee, unstake_fee, hashlist, created_at FROM collections ORDER BY id`
     );
     res.json({ success: true, data: result.rows });
   } catch (e) { console.error('[collections]', e.message); res.status(500).json({ success: false, message: 'Failed to get collections' }); }
