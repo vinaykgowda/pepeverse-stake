@@ -836,6 +836,40 @@ async function getClaimQuote(walletAddress) {
       };
     }
 
+    // PRE-FLIGHT: Check treasury balances — include as warning in quote, don't block popup
+    let treasuryWarning = null;
+    try {
+      const { Connection: SolConn, PublicKey: SolPK } = require('@solana/web3.js');
+      const { getAssociatedTokenAddress: getATA, getAccount: getAcct } = require('@solana/spl-token');
+      const conn = new SolConn(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
+      const walletPK = new SolPK(feeRecipient);
+      const insufficient = [];
+
+      for (const reward of rewardsResult.data) {
+        const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals || 9));
+        if (tokenAmount <= 0) continue;
+        try {
+          if (reward.token_address === 'So11111111111111111111111111111111111111112') {
+            const bal = await conn.getBalance(walletPK);
+            if (bal < tokenAmount + 10000000) insufficient.push(reward.token_symbol);
+          } else {
+            const ata = await getATA(new SolPK(reward.token_address), walletPK);
+            try {
+              const acct = await getAcct(conn, ata);
+              if (BigInt(acct.amount) < BigInt(tokenAmount)) insufficient.push(reward.token_symbol);
+            } catch { insufficient.push(reward.token_symbol); }
+          }
+        } catch (e) { console.warn(`[QUOTE] Balance check failed for ${reward.token_symbol}:`, e.message); }
+      }
+
+      if (insufficient.length > 0) {
+        treasuryWarning = `Rewards wallet has insufficient ${insufficient.join(', ')}. Please contact admin before claiming.`;
+        console.warn(`⚠️ [QUOTE] Treasury warning: ${treasuryWarning}`);
+      }
+    } catch (e) {
+      console.warn('[QUOTE] Treasury balance check error:', e.message);
+    }
+
     return {
       success: true,
       data: {
@@ -843,7 +877,8 @@ async function getClaimQuote(walletAddress) {
         total_claim_fee: totalClaimFee,
         fee_recipient: feeRecipient,
         collection_fees: Object.values(collectionFees),
-        requires_payment: totalClaimFee > 0
+        requires_payment: totalClaimFee > 0,
+        treasury_warning: treasuryWarning
       }
     };
 

@@ -497,6 +497,14 @@ const RewardsPanel = () => {
                   </div>
                 </div>
 
+                {/* Treasury Warning */}
+                {claimQuote.treasury_warning && (
+                  <div className="bg-red-50 border border-red-300 rounded-lg p-3 mb-3">
+                    <h4 className="text-sm font-medium text-red-800 mb-1">⚠️ Distribution Wallet Issue</h4>
+                    <p className="text-xs text-red-700">{claimQuote.treasury_warning}</p>
+                  </div>
+                )}
+
                 {/* Claim Fees */}
                 {claimQuote.requires_payment && claimQuote.total_claim_fee > 0 && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
@@ -542,8 +550,8 @@ const RewardsPanel = () => {
 
               <button
                 onClick={executeClaimWithPayment}
-                disabled={processing}
-                className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300 disabled:cursor-not-allowed"
+                disabled={processing || !!claimQuote.treasury_warning}
+                className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {processing ? (
                   <div className="flex items-center">
