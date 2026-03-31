@@ -653,12 +653,13 @@ stakingRouter.get('/rewards/per-nft', verifyJWT, async (req, res) => {
 // GET /api/v1/rewards/quote
 stakingRouter.get('/rewards/quote', verifyJWT, async (req, res) => {
   try {
-    const pool = getPool();
-    const feeRow = await pool.query("SELECT value FROM settings WHERE key_name = 'claim_fee'");
-    const recipientRow = await pool.query("SELECT value FROM settings WHERE key_name = 'rewards_wallet'");
-    const claimFee = parseFloat(feeRow.rows[0]?.value || 0);
-    const feeRecipient = recipientRow.rows[0]?.value || null;
-    return res.json({ success: true, data: { claimFee, feeRecipient, requiresPayment: claimFee > 0 } });
+    const { getClaimQuote } = require('../backend/src/solana-rewards-handler');
+    const result = await getClaimQuote(req.user.walletAddress);
+    if (result.success) {
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
   } catch (e) { console.error('[rewards/quote]', e.message); res.status(500).json({ success: false, message: 'Failed to get claim quote' }); }
 });
 
