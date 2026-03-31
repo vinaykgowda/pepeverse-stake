@@ -333,8 +333,8 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
           console.log(`💳 [CLAIM] Recording claim fee transaction for ${collection.name}: ${collection.claim_fee} SOL`);
 
           await dbConnection.query(
-            'INSERT INTO transactions (wallet_address, transaction_type, amount, status, collection_id, transaction_hash) VALUES ($1, $2, $3, $4, $5, $6)',
-            [walletAddress, 'CLAIM_FEE', collection.claim_fee, 'CONFIRMED', collectionId, paymentSignature]
+            'INSERT INTO transactions (wallet_address, transaction_type, amount, status, transaction_hash) VALUES ($1, $2, $3, $4, $5)',
+            [walletAddress, 'CLAIM_FEE', collection.claim_fee, 'CONFIRMED', paymentSignature]
           );
         }
       }
