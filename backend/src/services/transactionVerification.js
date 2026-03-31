@@ -12,8 +12,17 @@ const logger = require('../utils/logger');
 class TransactionVerificationService {
   constructor() {
     // Use Helius as primary RPC for verification (avoids 429 on public endpoint)
-    this.rpcEndpoint = process.env.HELIUS_MAINNET_ENDPOINT 
-      || process.env.MAINNET_RPC_PRIMARY 
+    const heliusEndpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+
+    // Build Helius URL with API key if not already included
+    let heliusUrl = heliusEndpoint;
+    if (heliusUrl && heliusApiKey && !heliusUrl.includes('api-key')) {
+      heliusUrl = `${heliusUrl.replace(/\/$/, '')}/?api-key=${heliusApiKey}`;
+    }
+
+    this.rpcEndpoint = heliusUrl
+      || process.env.MAINNET_RPC_PRIMARY
       || process.env.SOLANA_RPC_URL;
     
     if (!this.rpcEndpoint) {

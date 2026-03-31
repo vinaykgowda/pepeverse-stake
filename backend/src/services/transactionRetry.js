@@ -39,12 +39,19 @@ class TransactionRetryService {
    * @returns {Connection} Solana connection
    */
   _getConnection() {
-    const networkConfig = this._getNetworkConfig();
+    const heliusEndpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    let heliusUrl = heliusEndpoint;
+    if (heliusUrl && heliusApiKey && !heliusUrl.includes('api-key')) {
+      heliusUrl = `${heliusUrl.replace(/\/$/, '')}/?api-key=${heliusApiKey}`;
+    }
+    const primary = heliusUrl || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+    const fallback = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
     try {
-      return new Connection(networkConfig.getPrimaryRpc(), 'confirmed');
+      return new Connection(primary, 'confirmed');
     } catch (error) {
-      console.warn('Primary RPC failed, using fallback:', error.message);
-      return new Connection(networkConfig.getFallbackRpc(), 'confirmed');
+      console.warn('[TX Retry] Primary RPC failed, using fallback:', error.message);
+      return new Connection(fallback, 'confirmed');
     }
   }
 
