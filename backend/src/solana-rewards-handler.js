@@ -40,11 +40,8 @@ async function calculateRewards(walletAddress) {
     // Query 2: ALL active trait rewards for the collections the user has staked in
     const traitRewardsResult = await pool.query(
       `SELECT tr.collection_id, tr.trait_type, tr.trait_value, tr.multiplier,
-              tr.token_address, tr.token_symbol,
-              COALESCE(cr.token_decimals, 9) as token_decimals
+              tr.token_address, tr.token_symbol, tr.token_decimals
        FROM trait_rewards tr
-       LEFT JOIN collection_rewards cr ON cr.collection_id = tr.collection_id 
-         AND cr.token_address = tr.token_address AND cr.is_active = TRUE
        WHERE tr.is_active = TRUE
          AND tr.collection_id IN (SELECT DISTINCT collection_id FROM staked_nfts WHERE owner_wallet = $1)`,
       [walletAddress]
