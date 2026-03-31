@@ -106,12 +106,13 @@ const StakingStats = ({ walletNFTs = [] }) => {
     try {
       const res = await getClaimQuote();
       if (res.success) {
-        // Merge already-loaded rewards into the quote so the modal can display them
+        const treasuryWarning = res.data.treasury_warning ?? null;
         setClaimQuote({
           rewards: rewards,
           total_claim_fee: res.data.claimFee ?? res.data.total_claim_fee ?? 0,
           fee_recipient: res.data.feeRecipient ?? res.data.fee_recipient ?? null,
           requires_payment: res.data.requiresPayment ?? res.data.requires_payment ?? false,
+          treasury_warning: treasuryWarning,
         });
         setShowClaimModal(true);
       } else {
@@ -370,6 +371,11 @@ const StakingStats = ({ walletNFTs = [] }) => {
                 {claimError && (
                   <div className="bg-red-950/60 border border-red-700 text-red-400 px-4 py-3 rounded-xl mb-4 text-sm">{claimError}</div>
                 )}
+                {claimQuote.treasury_warning && (
+                  <div className="bg-red-950/60 border border-red-700 text-red-400 px-4 py-3 rounded-xl mb-4 text-sm">
+                    ⚠️ {claimQuote.treasury_warning}
+                  </div>
+                )}
                 <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 mb-4">
                   <div className="text-xs text-green-600 uppercase tracking-widest mb-3">Rewards to Claim</div>
                   {claimQuote.rewards?.map((r, i) => (
@@ -391,7 +397,8 @@ const StakingStats = ({ walletNFTs = [] }) => {
                     Cancel
                   </button>
                   <button onClick={executeClaimWithPayment}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)]">
+                    disabled={!!claimQuote.treasury_warning}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed disabled:shadow-none">
                     {claimQuote.total_claim_fee > 0 ? `Pay ${formatSol(claimQuote.total_claim_fee)} SOL & Claim` : 'Claim Rewards'}
                   </button>
                 </div>

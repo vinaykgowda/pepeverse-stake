@@ -791,38 +791,40 @@ async function getClaimQuote(walletAddress) {
 
     console.log(`📋 [QUOTE] Quote generated - Total fee: ${totalClaimFee} SOL`);
 
-    // PRE-FLIGHT: Check treasury balances — include as warning in quote, don't block popup
+    // PRE-FLIGHT: Check treasury balances — block claim if insufficient
     let treasuryWarning = null;
-    try {
-      const { Connection: SolConn, PublicKey: SolPK } = require('@solana/web3.js');
-      const { getAssociatedTokenAddress: getATA, getAccount: getAcct } = require('@solana/spl-token');
-      const conn = new SolConn(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
-      const walletPK = new SolPK(feeRecipient);
-      const insufficient = [];
+    const { Connection: SolConn, PublicKey: SolPK } = require('@solana/web3.js');
+    const { getAssociatedTokenAddress: getATA, getAccount: getAcct } = require('@solana/spl-token');
+    const conn = new SolConn(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
+    const walletPK = new SolPK(feeRecipient);
+    const insufficient = [];
 
-      for (const reward of rewardsResult.data) {
-        const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals || 9));
-        if (tokenAmount <= 0) continue;
+    for (const reward of rewardsResult.data) {
+      const tokenAmount = BigInt(Math.floor(reward.amount * Math.pow(10, reward.token_decimals || 9)));
+      if (tokenAmount <= 0n) continue;
+      try {
+        const ata = await getATA(new SolPK(reward.token_address), walletPK);
+        let balance = 0n;
         try {
-          if (reward.token_address === 'So11111111111111111111111111111111111111112') {
-            const bal = await conn.getBalance(walletPK);
-            if (bal < tokenAmount + 10000000) insufficient.push(reward.token_symbol);
-          } else {
-            const ata = await getATA(new SolPK(reward.token_address), walletPK);
-            try {
-              const acct = await getAcct(conn, ata);
-              if (BigInt(acct.amount) < BigInt(tokenAmount)) insufficient.push(reward.token_symbol);
-            } catch { insufficient.push(reward.token_symbol); }
-          }
-        } catch (e) { console.warn(`[QUOTE] Balance check failed for ${reward.token_symbol}:`, e.message); }
+          const acct = await getAcct(conn, ata);
+          balance = BigInt(acct.amount);
+        } catch {
+          balance = 0n; // token account doesn't exist
+        }
+        if (balance < tokenAmount) {
+          insufficient.push(`${reward.token_symbol} (have: ${(Number(balance) / Math.pow(10, reward.token_decimals || 9)).toFixed(2)}, need: ${reward.amount.toFixed(2)})`);
+        }
+      } catch (e) {
+        console.warn(`[QUOTE] Balance check error for ${reward.token_symbol}:`, e.message);
+        insufficient.push(`${reward.token_symbol} (balance check failed)`);
       }
+    }
 
-      if (insufficient.length > 0) {
-        treasuryWarning = `Rewards wallet has insufficient ${insufficient.join(', ')}. Please contact admin before claiming.`;
-        console.warn(`⚠️ [QUOTE] Treasury warning: ${treasuryWarning}`);
-      }
-    } catch (e) {
-      console.warn('[QUOTE] Treasury balance check error:', e.message);
+    if (insufficient.length > 0) {
+      treasuryWarning = `Admin action required — rewards wallet is low on: ${insufficient.join(', ')}. Claiming is disabled until the wallet is topped up.`;
+      console.warn(`⚠️ [QUOTE] Treasury insufficient: ${treasuryWarning}`);
+    } else {
+      console.log(`✅ [QUOTE] Treasury balance check passed`);
     }
 
     return {
