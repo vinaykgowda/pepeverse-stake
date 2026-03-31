@@ -468,8 +468,8 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
         // Update transaction status
         await dbConnection.query(
-          'UPDATE transactions SET status = $1, error_message = $2 WHERE id = $3',
-          ['FAILED', error.message, rewardTransactionId]
+          'UPDATE transactions SET status = $1 WHERE id = $2',
+          ['FAILED', rewardTransactionId]
         );
 
         failedClaims++;
@@ -703,7 +703,7 @@ async function getStakedNFTs(walletAddress) {
 async function getTransactionHistory(walletAddress) {
   try {
     const transactionsResult = await pool.query(
-      `SELECT id, transaction_type, transaction_hash, amount, token_address, status, created_at, error_message
+      `SELECT id, transaction_type, transaction_hash, amount, token_address, status, created_at
        FROM transactions
        WHERE wallet_address = $1
        ORDER BY created_at DESC
