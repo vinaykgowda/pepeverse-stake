@@ -48,11 +48,11 @@ const RewardsPanel = () => {
 
       const response = await getQuoteFromWallet();
 
-      if (response.success) {
+      if (response && response.success) {
         setClaimQuote(response.data);
         setShowClaimModal(true);
       } else {
-        setError(response.message);
+        setError(response?.message || 'Failed to get claim quote. Please try again.');
       }
     } catch (error) {
       console.error('❌ Error getting claim quote:', error);

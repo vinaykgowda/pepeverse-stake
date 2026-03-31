@@ -274,10 +274,10 @@ export const WalletProvider = ({ children }) => {
       return response.data;
     } catch (error) {
       console.error('❌ WalletContext: Error getting claim quote:', error);
-
+      const msg = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to get claim quote';
       return {
         success: false,
-        message: error.response?.data?.message || error.message
+        message: msg
       };
     }
   }, []);
