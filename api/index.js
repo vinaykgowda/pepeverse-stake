@@ -58,20 +58,20 @@ app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', timestamp: new 
 // ── Auth routes (inline — no bcrypt needed for wallet auth) ──────────────────
 const authRouter = express.Router();
 
-// In-memory nonce store
-const nonces = new Map();
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of nonces.entries()) { if (now > v.expiresAt) nonces.delete(k); }
-}, 60000);
-
 authRouter.post('/nonce', async (req, res) => {
   try {
     const { wallet } = req.body;
     if (!wallet) return res.status(400).json({ success: false, message: 'Wallet address is required' });
     const crypto = require('crypto');
     const nonce = crypto.randomBytes(32).toString('base64');
-    nonces.set(wallet, { nonce, expiresAt: Date.now() + 300000 });
+    const pool = getPool();
+    // Upsert nonce into DB — works across all serverless instances
+    await pool.query(
+      `INSERT INTO auth_nonces (wallet_address, nonce, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '5 minutes')
+       ON CONFLICT (wallet_address) DO UPDATE SET nonce = $2, expires_at = NOW() + INTERVAL '5 minutes'`,
+      [wallet, nonce]
+    );
     return res.json({ success: true, nonce });
   } catch (e) {
     console.error('[auth/nonce]', e.message);
@@ -86,11 +86,15 @@ authRouter.post('/verify', async (req, res) => {
       return res.status(400).json({ success: false, message: 'wallet, signature, and message are required' });
     }
 
-    const stored = nonces.get(wallet);
-    if (!stored || Date.now() > stored.expiresAt) {
-      return res.status(401).json({ success: false, message: 'Nonce not found or expired' });
+    const pool = getPool();
+    const nonceResult = await pool.query(
+      'SELECT nonce FROM auth_nonces WHERE wallet_address = $1 AND expires_at > NOW()',
+      [wallet]
+    );
+    if (nonceResult.rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'Nonce not found or expired. Please try again.' });
     }
-    if (stored.nonce !== message) {
+    if (nonceResult.rows[0].nonce !== message) {
       return res.status(401).json({ success: false, message: 'Nonce mismatch' });
     }
 
@@ -116,10 +120,10 @@ authRouter.post('/verify', async (req, res) => {
     const valid = nacl.sign.detached.verify(msgBytes, sigBytes, publicKeyBytes);
     if (!valid) return res.status(401).json({ success: false, message: 'Invalid signature' });
 
-    nonces.delete(wallet);
+    // Delete used nonce from DB
+    await pool.query('DELETE FROM auth_nonces WHERE wallet_address = $1', [wallet]);
 
     // Check admin status
-    const pool = getPool();
     const adminResult = await pool.query('SELECT id FROM admins WHERE wallet_address = $1', [wallet]);
     const isAdmin = adminResult.rows.length > 0;
 
