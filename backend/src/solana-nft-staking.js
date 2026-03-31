@@ -247,7 +247,7 @@ async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = n
     if (totalFee > 0 && paymentSignature) {
       await connection.query(
         'INSERT INTO transactions (wallet_address, transaction_type, amount, status, transaction_hash) VALUES ($1, $2, $3, $4, $5)',
-        [walletAddress, 'STAKE_FEE', totalFee, 'CONFIRMED', paymentSignature]
+        [walletAddress, 'FEE', totalFee, 'CONFIRMED', paymentSignature]
       );
     }
 

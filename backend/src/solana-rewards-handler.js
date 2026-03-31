@@ -334,7 +334,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
           await dbConnection.query(
             'INSERT INTO transactions (wallet_address, transaction_type, amount, status, transaction_hash) VALUES ($1, $2, $3, $4, $5)',
-            [walletAddress, 'CLAIM_FEE', collection.claim_fee, 'CONFIRMED', paymentSignature]
+            [walletAddress, 'FEE', collection.claim_fee, 'CONFIRMED', paymentSignature]
           );
         }
       }
