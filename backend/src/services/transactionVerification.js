@@ -11,8 +11,10 @@ const logger = require('../utils/logger');
  */
 class TransactionVerificationService {
   constructor() {
-    // Get RPC endpoint from environment
-    this.rpcEndpoint = process.env.MAINNET_RPC_PRIMARY || process.env.SOLANA_RPC_URL;
+    // Use Helius as primary RPC for verification (avoids 429 on public endpoint)
+    this.rpcEndpoint = process.env.HELIUS_MAINNET_ENDPOINT 
+      || process.env.MAINNET_RPC_PRIMARY 
+      || process.env.SOLANA_RPC_URL;
     
     if (!this.rpcEndpoint) {
       console.warn('TX-VERIFY: RPC endpoint not configured - transaction verification will fail until MAINNET_RPC_PRIMARY or SOLANA_RPC_URL is set');
@@ -36,9 +38,15 @@ class TransactionVerificationService {
    */
   getConnection() {
     if (this.disabled) {
-      throw new Error('TX-VERIFY: RPC endpoint not configured. Set MAINNET_RPC_PRIMARY or SOLANA_RPC_URL.');
+      throw new Error('TX-VERIFY: RPC endpoint not configured. Set HELIUS_MAINNET_ENDPOINT or SOLANA_RPC_URL.');
     }
     return new Connection(this.rpcEndpoint, 'confirmed');
+  }
+
+  // Fallback connection using public RPC if primary fails
+  getFallbackConnection() {
+    const fallback = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+    return new Connection(fallback, 'confirmed');
   }
   
   /**
@@ -107,9 +115,19 @@ class TransactionVerificationService {
           const maxAttempts = Math.ceil(timeoutMs / pollInterval);
           
           for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            const transaction = await connection.getTransaction(signature, {
-              maxSupportedTransactionVersion: 0
-            });
+            let transaction;
+            try {
+              transaction = await connection.getTransaction(signature, {
+                maxSupportedTransactionVersion: 0
+              });
+            } catch (rpcError) {
+              if (rpcError.message.includes('429')) {
+                const fallback = this.getFallbackConnection();
+                transaction = await fallback.getTransaction(signature, { maxSupportedTransactionVersion: 0 });
+              } else {
+                throw rpcError;
+              }
+            }
             
             if (transaction) {
               // Check if transaction was successful
@@ -186,9 +204,20 @@ class TransactionVerificationService {
       const connection = this.getConnection();
       
       // Requirement 14.3: Verify signature exists
-      const transaction = await connection.getTransaction(signature, {
-        maxSupportedTransactionVersion: 0
-      });
+      let transaction;
+      try {
+        transaction = await connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0
+        });
+      } catch (rpcError) {
+        if (rpcError.message.includes('429')) {
+          logger.warn('TX-VERIFY: Primary RPC rate limited, trying fallback', { signature });
+          const fallback = this.getFallbackConnection();
+          transaction = await fallback.getTransaction(signature, { maxSupportedTransactionVersion: 0 });
+        } else {
+          throw rpcError;
+        }
+      }
       
       if (!transaction) {
         // Requirement 14.4: Log failures with details
