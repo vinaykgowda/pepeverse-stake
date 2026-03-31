@@ -78,26 +78,27 @@ const StakingStats = ({ walletNFTs = [] }) => {
     }
   }, [connected, statsLoaded, loadStats, loadAirdrops]);
 
-  // Payment helper — routes through backend proxy to avoid CORS/403 on public RPC
+  // Payment helper — signs and sends directly from browser to Solana RPC
   const createPaymentTx = useCallback(async (recipient, amountSOL) => {
-    const lamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
+    const { Connection: SolConnection } = await import('@solana/web3.js');
+    const connection = new SolConnection(
+      import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+      'confirmed'
+    );
 
-    // Get blockhash via backend proxy
-    const blockhashRes = await api.solana.getBlockhash();
-    const { blockhash } = blockhashRes.data.data;
+    const lamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
+    const { blockhash } = await connection.getLatestBlockhash();
 
     const tx = new Transaction().add(
       SystemProgram.transfer({ fromPubkey: wallet.adapter.publicKey, toPubkey: new PublicKey(recipient), lamports })
     );
     tx.recentBlockhash = blockhash;
     tx.feePayer = wallet.adapter.publicKey;
-    const signed = await wallet.adapter.signTransaction(tx);
 
-    // Send via backend proxy
-    const sendRes = await api.solana.sendTransaction(
-      btoa(String.fromCharCode(...signed.serialize()))
-    );
-    return sendRes.data.data.signature;
+    const signed = await wallet.adapter.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signed.serialize());
+    await connection.confirmTransaction(signature, 'confirmed');
+    return signature;
   }, [wallet]);
 
   // Claim flow
