@@ -665,20 +665,14 @@ stakingRouter.get('/rewards/quote', verifyJWT, async (req, res) => {
 // POST /api/v1/rewards/claim
 stakingRouter.post('/rewards/claim', verifyJWT, async (req, res) => {
   try {
-    const pool = getPool();
-    const stakedResult = await pool.query(
-      'SELECT id FROM staked_nfts WHERE owner_wallet = $1',
-      [req.user.walletAddress]
-    );
-    if (stakedResult.rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'No staked NFTs found' });
+    const { claimRewardsWithPayment } = require('../backend/src/solana-rewards-handler');
+    const { paymentSignature } = req.body;
+    const result = await claimRewardsWithPayment(req.user.walletAddress, paymentSignature || null);
+    if (result.success) {
+      return res.json(result);
+    } else {
+      return res.status(result.requires_payment ? 402 : 400).json(result);
     }
-    // Update last_claim_timestamp for all staked NFTs
-    await pool.query(
-      'UPDATE staked_nfts SET last_claim_timestamp = NOW() WHERE owner_wallet = $1',
-      [req.user.walletAddress]
-    );
-    return res.json({ success: true, message: 'Rewards claimed successfully' });
   } catch (e) { console.error('[rewards/claim]', e.message); res.status(500).json({ success: false, message: 'Failed to claim rewards' }); }
 });
 
