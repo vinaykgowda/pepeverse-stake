@@ -30,6 +30,7 @@ const TraitManager = () => {
   const [collectionTokens, setCollectionTokens] = useState([]);
   const [fetchingToken, setFetchingToken] = useState(false);
   const [tokenFetchError, setTokenFetchError] = useState(null);
+  const [newTokenDecimals, setNewTokenDecimals] = useState(9);
 
   const loadData = async () => {
     try {
@@ -114,7 +115,9 @@ const TraitManager = () => {
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Failed to fetch token details');
       const symbol = data.data?.content?.metadata?.symbol || data.data?.token_info?.symbol || '';
+      const decimals = data.data?.token_info?.decimals ?? 9;
       if (!symbol) throw new Error('Symbol not found for this token');
+      setNewTokenDecimals(decimals);
       setFormData(prev => ({ ...prev, new_token_symbol: symbol }));
     } catch (err) {
       setTokenFetchError(err.message || 'Could not fetch token details');
@@ -145,16 +148,21 @@ const TraitManager = () => {
     const earnAmount = parseFloat(formData.earn_amount);
     if (isNaN(earnAmount) || earnAmount <= 0) return setError('Earn amount must be a positive number');
 
-    let tokenAddress, tokenSymbol;
+    let tokenAddress, tokenSymbol, tokenDecimals;
     if (tokenMode === 'new') {
       if (!isValidWalletAddress(formData.new_token_address)) return setError('Invalid new token address');
       if (!formData.new_token_symbol.trim()) return setError('New token symbol is required');
       tokenAddress = formData.new_token_address;
       tokenSymbol = formData.new_token_symbol.trim().toUpperCase();
+      tokenDecimals = newTokenDecimals;
     } else {
       if (!formData.token_address) return setError('Please select a token');
       tokenAddress = formData.token_address;
       tokenSymbol = formData.token_symbol;
+      // Get decimals from rewards or existing trait rewards
+      const fromReward = rewards.find(r => r.token_address === tokenAddress);
+      const fromTrait = traitRewards.find(tr => tr.token_address === tokenAddress);
+      tokenDecimals = fromReward?.token_decimals ?? fromTrait?.token_decimals ?? 9;
     }
 
     setLoading(true);
@@ -166,7 +174,8 @@ const TraitManager = () => {
         trait_value: formData.trait_value,
         token_address: tokenAddress,
         token_symbol: tokenSymbol,
-        multiplier: earnAmount, // stored in multiplier column, now means flat earn amount
+        token_decimals: tokenDecimals,
+        multiplier: earnAmount,
       };
 
       if (editMode) {

@@ -501,19 +501,16 @@ router.get('/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => {
 });
 
 router.post('/trait-rewards', verifyJWT, verifyAdmin, async (req, res) => {
-  const { collection_id, trait_type, trait_value, token_address, token_symbol, multiplier } = req.body;
+  const { collection_id, trait_type, trait_value, token_address, token_symbol, multiplier, token_decimals } = req.body;
 
   if (!collection_id || !trait_type || !trait_value || !token_address || !token_symbol || multiplier === undefined) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid trait reward data'
-    });
+    return res.status(400).json({ success: false, message: 'Invalid trait reward data' });
   }
 
   try {
     const result = await pool.query(
-      'INSERT INTO trait_rewards (collection_id, trait_type, trait_value, token_address, token_symbol, multiplier) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-      [collection_id, trait_type, trait_value, token_address, token_symbol, multiplier]
+      'INSERT INTO trait_rewards (collection_id, trait_type, trait_value, token_address, token_symbol, multiplier, token_decimals) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+      [collection_id, trait_type, trait_value, token_address, token_symbol, multiplier, token_decimals ?? 9]
     );
 
     // Invalidate collection cache after adding trait reward
