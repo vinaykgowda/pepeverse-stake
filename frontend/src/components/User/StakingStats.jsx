@@ -1,10 +1,9 @@
 // frontend/src/components/User/StakingStats.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '../../context/WalletContext';
-import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL, Connection } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { formatToken, formatSol } from '../../utils/format';
 import api from '../../services/api';
-import networkConfig from '../../config/network';
 
 const StakingStats = ({ walletNFTs = [] }) => {
   const { loading, getStakingStats, getStakedNFTs, calculateRewards, claimRewards, getClaimQuote, wallet, connected } = useWallet();
@@ -79,12 +78,13 @@ const StakingStats = ({ walletNFTs = [] }) => {
     }
   }, [connected, statsLoaded, loadStats, loadAirdrops]);
 
-  // Payment helper — signs and sends directly from browser to Solana RPC
+  // Payment helper — signs locally, sends via backend proxy (keeps Helius API key server-side)
   const createPaymentTx = useCallback(async (recipient, amountSOL) => {
-    const connection = new Connection(networkConfig.getRpcEndpoint(), 'confirmed');
-
     const lamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
-    const { blockhash } = await connection.getLatestBlockhash();
+
+    // Get blockhash via backend proxy (Helius, key stays server-side)
+    const blockhashRes = await api.solana.getBlockhash();
+    const { blockhash, lastValidBlockHeight } = blockhashRes.data.data;
 
     const tx = new Transaction().add(
       SystemProgram.transfer({ fromPubkey: wallet.adapter.publicKey, toPubkey: new PublicKey(recipient), lamports })
@@ -92,10 +92,14 @@ const StakingStats = ({ walletNFTs = [] }) => {
     tx.recentBlockhash = blockhash;
     tx.feePayer = wallet.adapter.publicKey;
 
+    // Wallet signs locally — no RPC involved here
     const signed = await wallet.adapter.signTransaction(tx);
-    const signature = await connection.sendRawTransaction(signed.serialize());
-    await connection.confirmTransaction(signature, 'confirmed');
-    return signature;
+
+    // Send serialized tx via backend proxy
+    const sendRes = await api.solana.sendTransaction(
+      Buffer.from(signed.serialize()).toString('base64')
+    );
+    return sendRes.data.data.signature;
   }, [wallet]);
 
   // Claim flow
