@@ -791,51 +791,6 @@ async function getClaimQuote(walletAddress) {
 
     console.log(`📋 [QUOTE] Quote generated - Total fee: ${totalClaimFee} SOL`);
 
-    // PRE-FLIGHT: Check treasury has sufficient balance for every reward token
-    // Do this here so user sees the error BEFORE being asked to pay the claim fee
-    const { Connection, PublicKey } = require('@solana/web3.js');
-    const { getAssociatedTokenAddress, getAccount } = require('@solana/spl-token');
-    const solanaConnection = new Connection(
-      process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed'
-    );
-    const rewardsWalletPubkey = new PublicKey(feeRecipient);
-    const insufficientTokens = [];
-
-    for (const reward of rewardsResult.data) {
-      const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals || 9));
-      if (tokenAmount <= 0) continue;
-      try {
-        if (reward.token_address === 'So11111111111111111111111111111111111111112') {
-          const bal = await solanaConnection.getBalance(rewardsWalletPubkey);
-          if (bal < tokenAmount + 10000000) {
-            insufficientTokens.push({ symbol: reward.token_symbol, has: bal / 1e9, needs: reward.amount });
-          }
-        } else {
-          const ata = await getAssociatedTokenAddress(new PublicKey(reward.token_address), rewardsWalletPubkey);
-          try {
-            const acct = await getAccount(solanaConnection, ata);
-            if (BigInt(acct.amount) < BigInt(tokenAmount)) {
-              insufficientTokens.push({ symbol: reward.token_symbol, has: Number(acct.amount) / Math.pow(10, reward.token_decimals || 9), needs: reward.amount });
-            }
-          } catch {
-            insufficientTokens.push({ symbol: reward.token_symbol, has: 0, needs: reward.amount });
-          }
-        }
-      } catch (e) {
-        console.warn(`[QUOTE] Balance check failed for ${reward.token_symbol}:`, e.message);
-      }
-    }
-
-    if (insufficientTokens.length > 0) {
-      const tokenList = insufficientTokens.map(t => t.symbol).join(', ');
-      console.error(`❌ [QUOTE] Insufficient treasury balance for: ${tokenList}`);
-      return {
-        success: false,
-        message: `Rewards temporarily unavailable: the distribution wallet has insufficient ${tokenList}. Please contact the admin.`,
-        insufficient_tokens: insufficientTokens
-      };
-    }
-
     // PRE-FLIGHT: Check treasury balances — include as warning in quote, don't block popup
     let treasuryWarning = null;
     try {
