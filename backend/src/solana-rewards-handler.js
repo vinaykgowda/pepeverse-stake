@@ -53,7 +53,7 @@ async function calculateRewards(walletAddress) {
        LEFT JOIN trait_rewards tr ON tr.collection_id = s.collection_id 
          AND tr.token_address = cr.token_address
          AND tr.is_active = TRUE
-       WHERE s.wallet_address = $1
+       WHERE s.owner_wallet = $1
        GROUP BY s.id, s.mint_address, s.collection_id, s.stake_timestamp, 
                 s.last_claim_timestamp, s.traits, c.name, cr.id, 
                 cr.token_address, cr.token_symbol, cr.daily_rate, cr.token_decimals`,
@@ -193,11 +193,11 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     // Get staked NFTs with their collection info, including claim fees
     // Use FOR UPDATE to lock rows and prevent race conditions (Requirement 13.2, 13.5)
     const stakedNFTsResult = await dbConnection.query(
-      `SELECT s.id, s.mint_address, s.collection_id, s.wallet_address,
+      `SELECT s.id, s.mint_address, s.collection_id, s.owner_wallet,
               c.name as collection_name, c.claim_fee
        FROM staked_nfts s
        JOIN collections c ON s.collection_id = c.id
-       WHERE s.wallet_address = $1
+       WHERE s.owner_wallet = $1
        FOR UPDATE`,
       [walletAddress]
     );
@@ -208,7 +208,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
     // Debug: Log actual wallet addresses found
     if (stakedNFTs.length > 0) {
-      console.log(`🔍 [CLAIM] Sample wallet address from staked NFTs: "${stakedNFTs[0].wallet_address}"`);
+      console.log(`🔍 [CLAIM] Sample wallet address from staked NFTs: "${stakedNFTs[0].owner_wallet}"`);
     }
 
     if (stakedNFTs.length === 0) {
@@ -500,7 +500,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
     // Check current timestamps BEFORE update (with lock to ensure consistency)
     const beforeUpdateResult = await dbConnection.query(
-      'SELECT mint_address, wallet_address, last_claim_timestamp, NOW() as current_server_time FROM staked_nfts WHERE wallet_address = $1 FOR UPDATE',
+      'SELECT mint_address, owner_wallet, last_claim_timestamp, NOW() as current_server_time FROM staked_nfts WHERE owner_wallet = $1 FOR UPDATE',
       [walletAddress]
     );
     console.log(`📅 [CLAIM] Current server time:`, new Date().toISOString());
@@ -509,7 +509,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     // FIXED: Perform the update with exact wallet address match
     console.log(`🔄 [CLAIM] Executing UPDATE query with wallet address: "${walletAddress}"`);
     const updateResult = await dbConnection.query(
-      'UPDATE staked_nfts SET last_claim_timestamp = NOW() WHERE wallet_address = $1',
+      'UPDATE staked_nfts SET last_claim_timestamp = NOW() WHERE owner_wallet = $1',
       [walletAddress]
     );
 
@@ -519,7 +519,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
     // Check timestamps AFTER update
     const afterUpdateResult = await dbConnection.query(
-      'SELECT mint_address, wallet_address, last_claim_timestamp, NOW() as current_server_time FROM staked_nfts WHERE wallet_address = $1',
+      'SELECT mint_address, owner_wallet, last_claim_timestamp, NOW() as current_server_time FROM staked_nfts WHERE owner_wallet = $1',
       [walletAddress]
     );
     console.log(`📅 [CLAIM] Timestamps AFTER update:`, afterUpdateResult.rows);
@@ -531,13 +531,13 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
       // Check if any NFTs exist for this wallet with exact debugging
       const exactWalletCheckResult = await dbConnection.query(
-        'SELECT wallet_address, COUNT(*) as count FROM staked_nfts WHERE wallet_address = $1 GROUP BY wallet_address',
+        'SELECT owner_wallet, COUNT(*) as count FROM staked_nfts WHERE owner_wallet = $1 GROUP BY owner_wallet',
         [walletAddress]
       );
 
       // Also check for similar wallet addresses
       const similarWalletsResult = await dbConnection.query(
-        'SELECT DISTINCT wallet_address FROM staked_nfts LIMIT 5'
+        'SELECT DISTINCT owner_wallet FROM staked_nfts LIMIT 5'
       );
 
       console.error(`❌ [CLAIM] Exact wallet match: ${JSON.stringify(exactWalletCheckResult.rows)}`);
@@ -622,7 +622,7 @@ async function getStakedNFTs(walletAddress) {
               c.name as collection_name
        FROM staked_nfts s
        JOIN collections c ON s.collection_id = c.id
-       WHERE s.wallet_address = $1
+       WHERE s.owner_wallet = $1
        ORDER BY s.stake_timestamp DESC`,
       [walletAddress]
     );
@@ -742,7 +742,7 @@ async function getClaimQuote(walletAddress) {
               c.name as collection_name, c.claim_fee
        FROM staked_nfts s
        JOIN collections c ON s.collection_id = c.id
-       WHERE s.wallet_address = $1`,
+       WHERE s.owner_wallet = $1`,
       [walletAddress]
     );
     

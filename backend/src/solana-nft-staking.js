@@ -231,7 +231,7 @@ async function stakeNFTs(walletAddress, nfts, collectionId, paymentSignature = n
     // Insert staked NFTs
     const stakePromises = nfts.map(nft => {
       return connection.query(
-        'INSERT INTO staked_nfts (wallet_address, mint_address, collection_id, stake_timestamp, traits) VALUES ($1, $2, $3, NOW(), $4)',
+        'INSERT INTO staked_nfts (owner_wallet, mint_address, collection_id, stake_timestamp, traits) VALUES ($1, $2, $3, NOW(), $4)',
         [
           walletAddress,
           nft.mintAddress,
@@ -332,7 +332,7 @@ async function unstakeNFTs(walletAddress, nftIds) {
       `SELECT sn.*, c.unstake_fee, c.name as collection_name
        FROM staked_nfts sn
        JOIN collections c ON sn.collection_id = c.id
-       WHERE sn.id IN (${placeholders}) AND sn.wallet_address = $${nftIds.length + 1}`,
+       WHERE sn.id IN (${placeholders}) AND sn.owner_wallet = $${nftIds.length + 1}`,
       [...nftIds, walletAddress]
     );
     
@@ -386,7 +386,7 @@ async function unstakeNFTs(walletAddress, nftIds) {
 
     // Remove NFTs from staked_nfts table
     await connection.query(
-      `DELETE FROM staked_nfts WHERE id IN (${placeholders}) AND wallet_address = $${nftIds.length + 1}`,
+      `DELETE FROM staked_nfts WHERE id IN (${placeholders}) AND owner_wallet = $${nftIds.length + 1}`,
       [...nftIds, walletAddress]
     );
 
@@ -434,7 +434,7 @@ async function getStakedNFTs(walletAddress) {
       `SELECT sn.*, c.name as collection_name
        FROM staked_nfts sn
        JOIN collections c ON sn.collection_id = c.id
-       WHERE sn.wallet_address = $1
+       WHERE sn.owner_wallet = $1
        ORDER BY sn.stake_timestamp DESC`,
       [walletAddress]
     );
@@ -482,7 +482,7 @@ async function getStakingStats(walletAddress) {
         c.name,
         COUNT(sn.id) as staked_count
        FROM collections c
-       LEFT JOIN staked_nfts sn ON c.id = sn.collection_id AND sn.wallet_address = $1
+       LEFT JOIN staked_nfts sn ON c.id = sn.collection_id AND sn.owner_wallet = $1
        GROUP BY c.id, c.name
        ORDER BY c.name`,
       [walletAddress]
