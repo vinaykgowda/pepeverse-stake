@@ -1,9 +1,10 @@
 // frontend/src/components/User/StakingStats.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '../../context/WalletContext';
-import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL, Connection } from '@solana/web3.js';
 import { formatToken, formatSol } from '../../utils/format';
 import api from '../../services/api';
+import networkConfig from '../../config/network';
 
 const StakingStats = ({ walletNFTs = [] }) => {
   const { loading, getStakingStats, getStakedNFTs, calculateRewards, claimRewards, getClaimQuote, wallet, connected } = useWallet();
@@ -80,11 +81,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
 
   // Payment helper — signs and sends directly from browser to Solana RPC
   const createPaymentTx = useCallback(async (recipient, amountSOL) => {
-    const { Connection: SolConnection } = await import('@solana/web3.js');
-    const connection = new SolConnection(
-      import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-      'confirmed'
-    );
+    const connection = new Connection(networkConfig.getRpcEndpoint(), 'confirmed');
 
     const lamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
     const { blockhash } = await connection.getLatestBlockhash();
