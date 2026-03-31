@@ -23,44 +23,35 @@ async function calculateRewards(walletAddress) {
   try {
     console.log(`🔄 [REWARDS] Calculating rewards for wallet: ${walletAddress}`);
 
-    // Single optimized query that:
-    // 1. Fetches all staked NFTs with collection and reward info
-    // 2. JOINs with trait_rewards to get multipliers
-    // 3. Calculates time-based rewards in SQL
-    // 4. Uses indexes on wallet_address and staked_at (Requirement 18.4)
-    const result = await pool.query(
+    // Query 1: base collection rewards per NFT
+    const baseResult = await pool.query(
       `SELECT 
-        s.id,
-        s.mint_address,
-        s.collection_id,
-        s.stake_timestamp,
-        s.last_claim_timestamp,
-        s.traits,
+        s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.last_claim_timestamp, s.traits,
         c.name as collection_name,
-        cr.id as reward_id,
-        cr.token_address,
-        cr.token_symbol,
-        cr.daily_rate,
-        cr.token_decimals,
-        EXTRACT(EPOCH FROM (NOW() - COALESCE(s.last_claim_timestamp, s.stake_timestamp))) as seconds_since_last_claim,
-        STRING_AGG(
-          CONCAT(tr.trait_type, ':', tr.trait_value, ':', tr.multiplier),
-          '||'
-        ) as trait_multipliers
+        cr.id as reward_id, cr.token_address, cr.token_symbol, cr.daily_rate, cr.token_decimals,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(s.last_claim_timestamp, s.stake_timestamp))) as seconds_since_last_claim
        FROM staked_nfts s
        JOIN collections c ON s.collection_id = c.id
        LEFT JOIN collection_rewards cr ON c.id = cr.collection_id AND cr.is_active = TRUE
-       LEFT JOIN trait_rewards tr ON tr.collection_id = s.collection_id 
-         AND tr.token_address = cr.token_address
-         AND tr.is_active = TRUE
-       WHERE s.owner_wallet = $1
-       GROUP BY s.id, s.mint_address, s.collection_id, s.stake_timestamp, 
-                s.last_claim_timestamp, s.traits, c.name, cr.id, 
-                cr.token_address, cr.token_symbol, cr.daily_rate, cr.token_decimals`,
+       WHERE s.owner_wallet = $1`,
       [walletAddress]
     );
-    
-    const results = result.rows;
+
+    // Query 2: ALL active trait rewards for the collections the user has staked in
+    const traitRewardsResult = await pool.query(
+      `SELECT tr.collection_id, tr.trait_type, tr.trait_value, tr.multiplier,
+              tr.token_address, tr.token_symbol,
+              COALESCE(cr.token_decimals, 9) as token_decimals
+       FROM trait_rewards tr
+       LEFT JOIN collection_rewards cr ON cr.collection_id = tr.collection_id 
+         AND cr.token_address = tr.token_address AND cr.is_active = TRUE
+       WHERE tr.is_active = TRUE
+         AND tr.collection_id IN (SELECT DISTINCT collection_id FROM staked_nfts WHERE owner_wallet = $1)`,
+      [walletAddress]
+    );
+
+    const results = baseResult.rows;
+    const allTraitRewards = traitRewardsResult.rows;
 
     console.log(`📊 [REWARDS] Found ${results.length} staked NFTs for wallet ${walletAddress}`);
 
@@ -91,66 +82,60 @@ async function calculateRewards(walletAddress) {
     for (const nft of nftsWithRewards) {
       try {
         const secondsSinceLastClaim = parseInt(nft.seconds_since_last_claim) || 0;
-        const daysSinceLastClaim = secondsSinceLastClaim / (24 * 60 * 60); // Convert seconds to days
+        const daysSinceLastClaim = secondsSinceLastClaim / (24 * 60 * 60);
 
         console.log(`📅 [REWARDS] NFT ${nft.mint_address}: ${secondsSinceLastClaim} seconds (${daysSinceLastClaim.toFixed(6)} days) since last claim`);
 
-        // Use 60-second minimum window for reward calculation updates (Requirement 13.1)
-        // This prevents exploitation of timing windows to claim excess rewards
         if (secondsSinceLastClaim < 60) {
-          console.log(`⏰ [REWARDS] NFT ${nft.mint_address}: Claimed within last 60 seconds (${secondsSinceLastClaim}s ago), minimum window not met`);
+          console.log(`⏰ [REWARDS] NFT ${nft.mint_address}: Claimed within last 60 seconds, minimum window not met`);
           continue;
         }
 
-        // Calculate base reward
-        let reward = parseFloat(nft.daily_rate) * daysSinceLastClaim;
-
-        console.log(`📈 [REWARDS] NFT ${nft.mint_address}: ${daysSinceLastClaim.toFixed(6)} days since last claim, base reward: ${reward}`);
-
-        // Apply trait flat earn amounts if applicable
-        // Each matching trait adds its own flat daily earn amount (not a multiplier)
-        const traitEarnAmounts = {};
-        if (nft.trait_multipliers) {
-          const pairs = nft.trait_multipliers.split('||');
-          for (const pair of pairs) {
-            const [traitType, traitValue, earnAmount] = pair.split(':');
-            const key = `${traitType}:${traitValue}`;
-            traitEarnAmounts[key] = parseFloat(earnAmount);
+        // Parse traits — handle both string and already-parsed object from Postgres
+        let traits = [];
+        if (nft.traits) {
+          if (typeof nft.traits === 'string') {
+            try { traits = JSON.parse(nft.traits); } catch { traits = []; }
+          } else if (Array.isArray(nft.traits)) {
+            traits = nft.traits;
           }
         }
 
-        // Requirements: 16.1, 16.3 - Safe JSON parsing with validation
-        const traits = safeParseJSONLegacy(nft.traits, []);
+        // Base reward for this NFT's collection token
+        const baseReward = parseFloat(nft.daily_rate) * daysSinceLastClaim;
+        console.log(`📈 [REWARDS] NFT ${nft.mint_address}: base reward ${baseReward} ${nft.token_symbol}`);
 
-        if (Array.isArray(traits) && traits.length > 0) {
-          for (const trait of traits) {
-            if (trait && typeof trait === 'object' && trait.trait_type && trait.value) {
-              const key = `${trait.trait_type}:${trait.value}`;
-              if (traitEarnAmounts[key]) {
-                const traitReward = traitEarnAmounts[key] * daysSinceLastClaim;
-                console.log(`🎲 [REWARDS] Adding trait earn ${traitEarnAmounts[key]}/day for ${trait.trait_type}:${trait.value} = ${traitReward}`);
-                reward += traitReward;
-              }
-            }
-          }
-        }
-
-        console.log(`💎 [REWARDS] NFT ${nft.mint_address} final reward: ${reward}`);
-
-        // Only add if reward is meaningful (> 0.000001)
-        if (reward > 0.000001) {
+        if (baseReward > 0.000001) {
           const tokenKey = `${nft.token_address}-${nft.token_symbol}`;
           if (!rewardsByToken[tokenKey]) {
-            rewardsByToken[tokenKey] = {
-              token_address: nft.token_address,
-              token_symbol: nft.token_symbol,
-              token_decimals: nft.token_decimals || 9,
-              amount: 0
-            };
+            rewardsByToken[tokenKey] = { token_address: nft.token_address, token_symbol: nft.token_symbol, token_decimals: nft.token_decimals || 9, amount: 0 };
           }
-
-          rewardsByToken[tokenKey].amount += reward;
+          rewardsByToken[tokenKey].amount += baseReward;
         }
+
+        // Trait rewards — each matching trait adds its own token reward
+        const nftTraitRewards = allTraitRewards.filter(tr => tr.collection_id === nft.collection_id);
+        for (const tr of nftTraitRewards) {
+          const hasMatch = traits.some(t => {
+            const tType = String(t.trait_type ?? t.type ?? '').toLowerCase();
+            const tVal  = String(t.value ?? t.trait_value ?? '').toLowerCase();
+            return tType === String(tr.trait_type).toLowerCase() && tVal === String(tr.trait_value).toLowerCase();
+          });
+          if (!hasMatch) continue;
+
+          const traitReward = parseFloat(tr.multiplier) * daysSinceLastClaim;
+          console.log(`🎲 [REWARDS] NFT ${nft.mint_address}: trait ${tr.trait_type}:${tr.trait_value} → ${traitReward} ${tr.token_symbol}`);
+
+          if (traitReward > 0.000001) {
+            const traitKey = `${tr.token_address}-${tr.token_symbol}`;
+            if (!rewardsByToken[traitKey]) {
+              rewardsByToken[traitKey] = { token_address: tr.token_address, token_symbol: tr.token_symbol, token_decimals: parseInt(tr.token_decimals) || 9, amount: 0 };
+            }
+            rewardsByToken[traitKey].amount += traitReward;
+          }
+        }
+
+        console.log(`💎 [REWARDS] NFT ${nft.mint_address} processed`);
       } catch (nftError) {
         console.error(`❌ [REWARDS] Error processing NFT ${nft.mint_address}:`, nftError);
       }
