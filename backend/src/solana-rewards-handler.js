@@ -385,58 +385,6 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
       throw new Error(`Solana connection failed: ${connectionError.message}`);
     }
 
-    // PRE-FLIGHT: Check treasury has sufficient balance for every reward token
-    console.log(`🔍 [CLAIM] Pre-flight balance check for ${rewards.length} reward token(s)...`);
-    const insufficientTokens = [];
-
-    for (const reward of rewards) {
-      const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals));
-      if (tokenAmount <= 0) continue;
-
-      try {
-        if (reward.token_address === 'So11111111111111111111111111111111111111112') {
-          // SOL reward — check SOL balance (need reward amount + 0.01 SOL for fees)
-          const solBalance = await solanaConnection.getBalance(rewardsKeypair.publicKey);
-          const needed = tokenAmount + 10000000; // reward + 0.01 SOL fees
-          if (solBalance < needed) {
-            insufficientTokens.push({ symbol: reward.token_symbol, has: solBalance / 1e9, needs: needed / 1e9 });
-          }
-        } else {
-          const { getAssociatedTokenAddress, getAccount } = require('@solana/spl-token');
-          const tokenMint = new PublicKey(reward.token_address);
-          const sourceATA = await getAssociatedTokenAddress(tokenMint, rewardsKeypair.publicKey);
-          try {
-            const acct = await getAccount(solanaConnection, sourceATA);
-            if (BigInt(acct.amount) < BigInt(tokenAmount)) {
-              insufficientTokens.push({
-                symbol: reward.token_symbol,
-                has: Number(acct.amount) / Math.pow(10, reward.token_decimals),
-                needs: reward.amount
-              });
-            }
-          } catch (e) {
-            // Token account doesn't exist = 0 balance
-            insufficientTokens.push({ symbol: reward.token_symbol, has: 0, needs: reward.amount });
-          }
-        }
-      } catch (balanceCheckError) {
-        console.error(`⚠️ [CLAIM] Balance check failed for ${reward.token_symbol}:`, balanceCheckError.message);
-      }
-    }
-
-    if (insufficientTokens.length > 0) {
-      await dbConnection.query('ROLLBACK');
-      const tokenList = insufficientTokens.map(t => `${t.symbol} (has: ${t.has.toFixed(4)}, needs: ${t.needs.toFixed(4)})`).join(', ');
-      console.error(`❌ [CLAIM] Insufficient treasury balance for: ${tokenList}`);
-      return {
-        success: false,
-        message: `Reward distribution wallet has insufficient balance for: ${insufficientTokens.map(t => t.symbol).join(', ')}. Please contact the admin to top up the rewards wallet.`,
-        insufficient_tokens: insufficientTokens
-      };
-    }
-
-    console.log(`✅ [CLAIM] Pre-flight balance check passed`);
-
     // Process each reward token with REAL transactions
     let successfulClaims = 0;
     let failedClaims = 0;
@@ -449,7 +397,6 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
         console.log(`⚠️ [CLAIM] Skipping ${reward.token_symbol} - amount too small`);
         continue;
       }
-
 
       // Record transaction as pending
       const rewardResult = await dbConnection.query(
@@ -858,6 +805,51 @@ async function getClaimQuote(walletAddress) {
     const feeRecipient = feeRecipientResult.rows[0]?.value;
 
     console.log(`📋 [QUOTE] Quote generated - Total fee: ${totalClaimFee} SOL`);
+
+    // PRE-FLIGHT: Check treasury has sufficient balance for every reward token
+    // Do this here so user sees the error BEFORE being asked to pay the claim fee
+    const { Connection, PublicKey } = require('@solana/web3.js');
+    const { getAssociatedTokenAddress, getAccount } = require('@solana/spl-token');
+    const solanaConnection = new Connection(
+      process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed'
+    );
+    const rewardsWalletPubkey = new PublicKey(feeRecipient);
+    const insufficientTokens = [];
+
+    for (const reward of rewardsResult.data) {
+      const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals || 9));
+      if (tokenAmount <= 0) continue;
+      try {
+        if (reward.token_address === 'So11111111111111111111111111111111111111112') {
+          const bal = await solanaConnection.getBalance(rewardsWalletPubkey);
+          if (bal < tokenAmount + 10000000) {
+            insufficientTokens.push({ symbol: reward.token_symbol, has: bal / 1e9, needs: reward.amount });
+          }
+        } else {
+          const ata = await getAssociatedTokenAddress(new PublicKey(reward.token_address), rewardsWalletPubkey);
+          try {
+            const acct = await getAccount(solanaConnection, ata);
+            if (BigInt(acct.amount) < BigInt(tokenAmount)) {
+              insufficientTokens.push({ symbol: reward.token_symbol, has: Number(acct.amount) / Math.pow(10, reward.token_decimals || 9), needs: reward.amount });
+            }
+          } catch {
+            insufficientTokens.push({ symbol: reward.token_symbol, has: 0, needs: reward.amount });
+          }
+        }
+      } catch (e) {
+        console.warn(`[QUOTE] Balance check failed for ${reward.token_symbol}:`, e.message);
+      }
+    }
+
+    if (insufficientTokens.length > 0) {
+      const tokenList = insufficientTokens.map(t => t.symbol).join(', ');
+      console.error(`❌ [QUOTE] Insufficient treasury balance for: ${tokenList}`);
+      return {
+        success: false,
+        message: `Rewards temporarily unavailable: the distribution wallet has insufficient ${tokenList}. Please contact the admin.`,
+        insufficient_tokens: insufficientTokens
+      };
+    }
 
     return {
       success: true,
