@@ -285,6 +285,76 @@ userRouter.post('/airdrops/quote', verifyJWT, async (req, res) => {
   } catch (e) { console.error('[user/airdrops/quote]', e.message); res.status(500).json({ success: false, message: 'Failed to fetch airdrop quote' }); }
 });
 
+userRouter.post('/airdrops/claim', verifyJWT, async (req, res) => {
+  try {
+    const { wallet_address, airdrop_config_id, payment_signature } = req.body;
+    if (!wallet_address || !airdrop_config_id) return res.status(400).json({ success: false, message: 'wallet_address and airdrop_config_id are required' });
+
+    const pool = getPool();
+
+    // Verify snapshot exists and is unclaimed
+    const snapResult = await pool.query(
+      `SELECT snap.id, snap.token_amount, ac.token_address, ac.token_symbol, ac.token_decimals
+       FROM airdrop_snapshots snap
+       JOIN airdrop_configs ac ON snap.airdrop_config_id = ac.id
+       WHERE snap.airdrop_config_id = $1 AND snap.wallet_address = $2
+         AND snap.claimed = false AND ac.status = 'active' AND ac.expires_at > NOW()`,
+      [airdrop_config_id, wallet_address]
+    );
+    if (snapResult.rows.length === 0)
+      return res.status(404).json({ success: false, message: 'No eligible unclaimed airdrop found' });
+
+    const snap = snapResult.rows[0];
+    const tokenAmount = parseFloat(snap.token_amount);
+    const tokenDecimals = snap.token_decimals || 9;
+    const tokenAmountBase = Math.floor(tokenAmount * Math.pow(10, tokenDecimals));
+
+    // Get rewards wallet keypair
+    const encKeyResult = await pool.query("SELECT value FROM settings WHERE key_name = 'rewards_wallet_encrypted_key'");
+    const rewardsWalletResult = await pool.query("SELECT value FROM settings WHERE key_name = 'rewards_wallet'");
+    if (!encKeyResult.rows[0]?.value) return res.status(500).json({ success: false, message: 'Rewards wallet not configured' });
+
+    const { getKeypairFromPrivateKey, getConnection } = require('../backend/src/solana-transaction-utils');
+    const { PublicKey } = require('@solana/web3.js');
+    const splToken = require('@solana/spl-token');
+
+    const rewardsKeypair = getKeypairFromPrivateKey(encKeyResult.rows[0].value);
+    const connection = getConnection();
+    const userPubkey = new PublicKey(wallet_address);
+    const tokenMint = new PublicKey(snap.token_address);
+
+    // Get or create token accounts
+    const sourceATA = await splToken.getAssociatedTokenAddress(tokenMint, rewardsKeypair.publicKey);
+    const destATA = await splToken.getAssociatedTokenAddress(tokenMint, userPubkey);
+
+    const instructions = [];
+
+    // Create destination ATA if needed
+    try { await splToken.getAccount(connection, destATA); }
+    catch {
+      instructions.push(splToken.createAssociatedTokenAccountInstruction(
+        rewardsKeypair.publicKey, destATA, userPubkey, tokenMint
+      ));
+    }
+
+    instructions.push(splToken.createTransferInstruction(sourceATA, destATA, rewardsKeypair.publicKey, tokenAmountBase));
+
+    const { sendTransaction } = require('../backend/src/solana-transaction-utils');
+    const signature = await sendTransaction(instructions, rewardsKeypair);
+
+    // Mark as claimed
+    await pool.query(
+      'UPDATE airdrop_snapshots SET claimed = true, claimed_at = NOW(), claim_tx_hash = $1 WHERE id = $2',
+      [signature, snap.id]
+    );
+
+    return res.json({ success: true, signature, token_amount: tokenAmount, token_symbol: snap.token_symbol });
+  } catch (e) {
+    console.error('[user/airdrops/claim]', e.message);
+    res.status(500).json({ success: false, message: e.message || 'Failed to claim airdrop' });
+  }
+});
+
 app.use('/api/v1/user', userRouter);
 
 // ── Staking / Rewards / NFT routes (inline — no bcrypt) ──────────────────────
