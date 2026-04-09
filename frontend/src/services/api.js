@@ -170,6 +170,7 @@ const adminApi = {
 
   // Airdrops
   getAirdrops: (params) => api.get('/admin/airdrops', { params }),
+  previewAirdrop: (data) => api.post('/admin/airdrops/preview', data),
   createAirdrop: (data) => api.post('/admin/airdrops', data),
   updateAirdrop: (id, data) => api.put(`/admin/airdrops/${id}`, data),
   deleteAirdrop: (id) => api.delete(`/admin/airdrops/${id}`),

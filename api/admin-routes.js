@@ -292,6 +292,77 @@ router.get('/airdrops', verifyJWT, verifyAdmin, async (req, res) => {
   }
 });
 
+// POST /api/v1/admin/airdrops/preview — calculate eligibility without saving
+router.post('/airdrops/preview', verifyJWT, verifyAdmin, async (req, res) => {
+  const { collection_id, airdrop_type, token_address, amount_per_nft,
+          minimum_threshold, trait_type, trait_value } = req.body;
+
+  if (!collection_id || !token_address || amount_per_nft === undefined || !airdrop_type)
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
+
+  try {
+    const pool = getPool();
+    let eligibleWallets = [];
+
+    if (airdrop_type === 'threshold') {
+      const r = await pool.query(
+        `SELECT owner_wallet, COUNT(*) AS nft_count
+         FROM staked_nfts WHERE collection_id = $1
+         GROUP BY owner_wallet HAVING COUNT(*) >= $2
+         ORDER BY nft_count DESC`,
+        [collection_id, minimum_threshold]
+      );
+      eligibleWallets = r.rows.map(row => ({
+        wallet: row.owner_wallet,
+        nft_count: parseInt(row.nft_count),
+        token_amount: parseInt(row.nft_count) * parseFloat(amount_per_nft),
+      }));
+    } else if (airdrop_type === 'trait') {
+      const traitFilter = JSON.stringify([{ trait_type, value: trait_value }]);
+      const r = await pool.query(
+        `SELECT owner_wallet, COUNT(*) AS nft_count
+         FROM staked_nfts WHERE collection_id = $1 AND traits::jsonb @> $2::jsonb
+         GROUP BY owner_wallet HAVING COUNT(*) > 0
+         ORDER BY nft_count DESC`,
+        [collection_id, traitFilter]
+      );
+      eligibleWallets = r.rows.map(row => ({
+        wallet: row.owner_wallet,
+        nft_count: parseInt(row.nft_count),
+        token_amount: parseInt(row.nft_count) * parseFloat(amount_per_nft),
+      }));
+    }
+
+    const totalTokens = eligibleWallets.reduce((s, w) => s + w.token_amount, 0);
+
+    // Check treasury balance
+    const walletResult = await pool.query(`SELECT value FROM settings WHERE key_name = 'rewards_wallet'`);
+    const rewardsWallet = walletResult.rows[0]?.value;
+    let treasuryBalance = null;
+    let sufficient = true;
+    if (rewardsWallet) {
+      try { treasuryBalance = await getTokenBalance(rewardsWallet, token_address); }
+      catch { treasuryBalance = null; }
+      if (treasuryBalance !== null) sufficient = treasuryBalance >= totalTokens;
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        eligible_wallets: eligibleWallets,
+        total_wallets: eligibleWallets.length,
+        total_tokens: totalTokens,
+        treasury_balance: treasuryBalance,
+        sufficient,
+        shortfall: sufficient ? 0 : totalTokens - (treasuryBalance ?? 0),
+      }
+    });
+  } catch (error) {
+    console.error('Error in POST /admin/airdrops/preview:', error);
+    return res.status(500).json({ success: false, message: 'Failed to preview airdrop' });
+  }
+});
+
 // POST /api/v1/admin/airdrops
 router.post('/airdrops', verifyJWT, verifyAdmin, async (req, res) => {
   const { collection_id, airdrop_type, token_address, token_symbol, token_decimals,

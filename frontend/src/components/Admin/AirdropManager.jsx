@@ -34,9 +34,13 @@ const AirdropManager = () => {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [tokenMode, setTokenMode] = useState('existing');
-  const [balanceWarning, setBalanceWarning] = useState(null);
 
-  const [eligibleModal, setEligibleModal] = useState(null); // { id, wallets, loading }
+  // Preview state
+  const [preview, setPreview] = useState(null); // { eligible_wallets, total_wallets, total_tokens, treasury_balance, sufficient, shortfall }
+  const [previewing, setPreviewing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [eligibleModal, setEligibleModal] = useState(null);
 
   const loadData = async () => {
     try {
@@ -58,16 +62,16 @@ const AirdropManager = () => {
 
   useEffect(() => { loadData(); }, []);
 
-  // Tokens available for selection (all tokens from rewards + trait_rewards)
   const collectionTokens = allTokens;
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    setPreview(null); // reset preview on any change
     setFormData(prev => {
       const next = { ...prev, [name]: value };
       if (name === 'token_address') {
         const token = collectionTokens.find(t => t.token_address === value);
-        if (token) next.token_symbol = token.token_symbol;
+        if (token) { next.token_symbol = token.token_symbol; next.token_decimals = token.token_decimals || 9; }
       }
       return next;
     });
@@ -76,71 +80,83 @@ const AirdropManager = () => {
   const resetForm = () => {
     setFormData(EMPTY_FORM);
     setTokenMode('existing');
-    setBalanceWarning(null);
+    setPreview(null);
     setShowForm(false);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!formData.collection_id) return setError('Please select a collection');
-    if (!formData.amount_per_nft || parseFloat(formData.amount_per_nft) <= 0)
-      return setError('Amount per NFT must be a positive number');
-    if (formData.airdrop_type === 'threshold') {
-      if (!formData.minimum_threshold || parseInt(formData.minimum_threshold) <= 0)
-        return setError('Minimum threshold must be greater than zero');
-    }
-    if (formData.airdrop_type === 'trait') {
-      if (!formData.trait_type.trim() || !formData.trait_value.trim())
-        return setError('Trait type and trait value are required');
-    }
-
+  const buildPayload = () => {
     let tokenAddress, tokenSymbol, tokenDecimals;
     if (tokenMode === 'new') {
-      if (!formData.new_token_address.trim()) return setError('Token address is required');
-      if (!formData.new_token_symbol.trim()) return setError('Token symbol is required');
       tokenAddress = formData.new_token_address.trim();
       tokenSymbol = formData.new_token_symbol.trim().toUpperCase();
       tokenDecimals = 9;
     } else {
-      if (!formData.token_address) return setError('Please select a token');
       tokenAddress = formData.token_address;
       tokenSymbol = formData.token_symbol;
       tokenDecimals = formData.token_decimals || 9;
     }
+    const payload = {
+      collection_id: parseInt(formData.collection_id),
+      airdrop_type: formData.airdrop_type,
+      token_address: tokenAddress,
+      token_symbol: tokenSymbol,
+      token_decimals: tokenDecimals,
+      amount_per_nft: parseFloat(formData.amount_per_nft),
+    };
+    if (formData.airdrop_type === 'threshold') payload.minimum_threshold = parseInt(formData.minimum_threshold);
+    else { payload.trait_type = formData.trait_type.trim(); payload.trait_value = formData.trait_value.trim(); }
+    return payload;
+  };
 
-    setLoading(true);
+  const validateForm = () => {
+    if (!formData.collection_id) return 'Please select a collection';
+    if (!formData.amount_per_nft || parseFloat(formData.amount_per_nft) <= 0) return 'Amount per NFT must be positive';
+    if (formData.airdrop_type === 'threshold' && (!formData.minimum_threshold || parseInt(formData.minimum_threshold) <= 0))
+      return 'Minimum threshold must be greater than zero';
+    if (formData.airdrop_type === 'trait' && (!formData.trait_type.trim() || !formData.trait_value.trim()))
+      return 'Trait type and trait value are required';
+    if (tokenMode === 'new') {
+      if (!formData.new_token_address.trim()) return 'Token address is required';
+      if (!formData.new_token_symbol.trim()) return 'Token symbol is required';
+    } else {
+      if (!formData.token_address) return 'Please select a token';
+    }
+    return null;
+  };
+
+  const handlePreview = async () => {
+    const err = validateForm();
+    if (err) return setError(err);
     setError(null);
-    setBalanceWarning(null);
+    setPreviewing(true);
+    setPreview(null);
     try {
-      const payload = {
-        collection_id: parseInt(formData.collection_id),
-        airdrop_type: formData.airdrop_type,
-        token_address: tokenAddress,
-        token_symbol: tokenSymbol,
-        token_decimals: tokenDecimals,
-        amount_per_nft: parseFloat(formData.amount_per_nft),
-      };
-      if (formData.airdrop_type === 'threshold') {
-        payload.minimum_threshold = parseInt(formData.minimum_threshold);
-      } else {
-        payload.trait_type = formData.trait_type.trim();
-        payload.trait_value = formData.trait_value.trim();
-      }
+      const res = await api.admin.previewAirdrop(buildPayload());
+      setPreview(res.data.data);
+    } catch (e) {
+      setError(e.response?.data?.message || 'Failed to preview eligibility');
+    } finally {
+      setPreviewing(false);
+    }
+  };
 
-      const res = await api.admin.createAirdrop(payload);
-      if (res.data.warning) {
-        setBalanceWarning({
-          shortfall: res.data.shortfall,
-          message: res.data.message,
-        });
-      }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const err = validateForm();
+    if (err) return setError(err);
+    if (!preview) return setError('Please click "Preview Eligibility" first');
+    if (!preview.sufficient) return setError(`Insufficient treasury balance. Need ${preview.total_tokens.toFixed(2)} tokens, have ${(preview.treasury_balance ?? 0).toFixed(2)}.`);
+    setError(null);
+    setSaving(true);
+    try {
+      await api.admin.createAirdrop(buildPayload());
       setSuccess('Airdrop configuration saved');
       resetForm();
       loadData();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save airdrop');
+    } catch (e) {
+      setError(e.response?.data?.message || 'Failed to save airdrop');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -221,19 +237,6 @@ const AirdropManager = () => {
         <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 relative">
           <span>{success}</span>
           <button onClick={() => setSuccess(null)} className="absolute top-0 bottom-0 right-0 px-4 py-3">
-            <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      )}
-
-      {balanceWarning && (
-        <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded mb-4 relative">
-          <span className="font-medium">Balance Warning:</span>{' '}
-          {balanceWarning.message || `Insufficient balance. Shortfall: ${balanceWarning.shortfall} tokens.`}
-          {' '}The airdrop has been saved in inactive state.
-          <button onClick={() => setBalanceWarning(null)} className="absolute top-0 bottom-0 right-0 px-4 py-3">
             <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -415,13 +418,66 @@ const AirdropManager = () => {
                 <p className="mt-1 text-sm text-gray-500">Tokens distributed per eligible NFT</p>
               </div>
 
-              <div className="flex justify-end">
+              {/* Preview Results */}
+              {preview && (
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className={`px-4 py-3 flex justify-between items-center ${preview.sufficient ? 'bg-green-50 border-b border-green-200' : 'bg-red-50 border-b border-red-200'}`}>
+                    <div>
+                      <span className="font-medium text-gray-900">{preview.total_wallets} eligible wallet{preview.total_wallets !== 1 ? 's' : ''}</span>
+                      <span className="mx-2 text-gray-400">·</span>
+                      <span className="text-gray-700">{preview.total_tokens.toFixed(4)} tokens total</span>
+                      <span className="mx-2 text-gray-400">·</span>
+                      <span className={preview.sufficient ? 'text-green-700' : 'text-red-700'}>
+                        Treasury: {preview.treasury_balance != null ? preview.treasury_balance.toFixed(4) : 'unknown'}
+                        {!preview.sufficient && ` (shortfall: ${preview.shortfall.toFixed(4)})`}
+                      </span>
+                    </div>
+                    {!preview.sufficient && (
+                      <span className="text-xs font-semibold text-red-700 bg-red-100 px-2 py-1 rounded">Insufficient Balance</span>
+                    )}
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Wallet</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Eligible NFTs</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Tokens to Receive</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {preview.eligible_wallets.map((w, i) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-2 font-mono text-xs text-gray-700">{w.wallet.slice(0,8)}...{w.wallet.slice(-4)}</td>
+                            <td className="px-4 py-2 text-right text-gray-900">{w.nft_count}</td>
+                            <td className="px-4 py-2 text-right text-gray-900">{w.token_amount.toFixed(4)}</td>
+                          </tr>
+                        ))}
+                        {preview.eligible_wallets.length === 0 && (
+                          <tr><td colSpan={3} className="px-4 py-4 text-center text-gray-500">No eligible wallets found</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={previewing}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:bg-gray-300"
+                >
+                  {previewing ? 'Loading...' : 'Preview Eligibility'}
+                </button>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-indigo-300"
+                  disabled={saving || !preview || !preview.sufficient || preview.total_wallets === 0}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  title={!preview ? 'Preview eligibility first' : !preview.sufficient ? 'Insufficient treasury balance' : preview.total_wallets === 0 ? 'No eligible wallets' : ''}
                 >
-                  {loading ? 'Saving...' : 'Save Airdrop'}
+                  {saving ? 'Saving...' : 'Save Airdrop'}
                 </button>
               </div>
             </div>
