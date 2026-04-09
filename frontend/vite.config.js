@@ -7,9 +7,13 @@ import path from 'path';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    global: 'globalThis',
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      buffer: 'buffer',
     },
   },
   server: {
@@ -27,11 +31,17 @@ export default defineConfig({
     sourcemap: true,
   },
   optimizeDeps: {
+    esbuildOptions: {
+      define: { global: 'globalThis' },
+    },
     include: [
+      'buffer',
       '@solana/web3.js',
       '@solana/wallet-adapter-base',
       '@solana/wallet-adapter-phantom',
       '@solana/wallet-adapter-solflare',
+      '@solana/wallet-adapter-backpack',
+      '@solana/wallet-adapter-ledger',
     ],
   },
 });

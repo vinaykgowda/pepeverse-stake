@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
     "@jup-ag/wallet-adapter": "^0.2.6",
     "@solana/spl-token": "^0.4.13",
     "@solana/wallet-adapter-backpack": "^0.1.14",
