@@ -33,7 +33,11 @@ const NFTDisplay = ({
       result = result.filter(nft => !stakedMintAddresses.has(nft.mintAddress || nft.mint_address));
     }
     if (collectionFilter && collectionFilter !== '') {
-      result = result.filter(nft => nft.collectionId === parseInt(collectionFilter));
+      const filterId = parseInt(collectionFilter);
+      result = result.filter(nft =>
+        (nft.collectionId === filterId) ||
+        (parseInt(nft.collection_id) === filterId)
+      );
     }
     return result;
   }, [nfts, stakedMintAddresses, collectionFilter, isStakedView]);
