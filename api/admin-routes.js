@@ -603,34 +603,59 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
     let p = 1;
     if (start_date) { conditions.push(`t.created_at >= $${p++}`); params.push(start_date); }
     if (end_date) { conditions.push(`t.created_at <= $${p++}`); params.push(end_date); }
-    if (wallet_address) { conditions.push(`t.wallet_address ILIKE $${p++}`); params.push(wallet_address); }
+    if (wallet_address) { conditions.push(`t.wallet_address ILIKE $${p++}`); params.push(`%${wallet_address}%`); }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
-    // transactions table has no collection_id column — omit join
-    const baseSelect = `FROM transactions t ${whereClause}`;
 
+    // Stats: total claims, unique wallets
     const statsResult = await pool.query(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(t.amount), 0) AS total_distributed,
-              COUNT(DISTINCT t.wallet_address) AS unique_wallets ${baseSelect}`,
+      `SELECT COUNT(*) AS total_claims, COUNT(DISTINCT t.wallet_address) AS unique_wallets
+       FROM transactions t ${whereClause}`,
       params
     );
+
+    // Per-token breakdown
+    const tokenStatsResult = await pool.query(
+      `SELECT
+         COALESCE(cr.token_symbol, tr.token_symbol, t.token_address) AS token_symbol,
+         t.token_address,
+         COUNT(*) AS claim_count,
+         SUM(t.amount) AS total_amount
+       FROM transactions t
+       LEFT JOIN collection_rewards cr ON cr.token_address = t.token_address AND cr.is_active = TRUE
+       LEFT JOIN trait_rewards tr ON tr.token_address = t.token_address AND tr.is_active = TRUE
+       ${whereClause}
+       GROUP BY t.token_address, cr.token_symbol, tr.token_symbol
+       ORDER BY total_amount DESC`,
+      params
+    );
+
     const stats = {
-      count: parseInt(statsResult.rows[0].count),
-      total_distributed: parseFloat(statsResult.rows[0].total_distributed),
-      unique_wallets: parseInt(statsResult.rows[0].unique_wallets)
+      total_claims: parseInt(statsResult.rows[0].total_claims),
+      unique_wallets: parseInt(statsResult.rows[0].unique_wallets),
+      by_token: tokenStatsResult.rows.map(r => ({
+        token_symbol: r.token_symbol,
+        token_address: r.token_address,
+        claim_count: parseInt(r.claim_count),
+        total_amount: parseFloat(r.total_amount)
+      }))
     };
 
     if (exportFormat === 'csv') {
       const csvResult = await pool.query(
-        `SELECT t.wallet_address, '' AS collection_name,
-                '' AS token_symbol, t.amount, t.created_at AS timestamp,
-                COALESCE(t.transaction_hash, '') AS transaction_hash
-         ${baseSelect} ORDER BY t.created_at DESC`,
+        `SELECT t.wallet_address,
+                COALESCE(cr.token_symbol, tr.token_symbol, t.token_address) AS token_symbol,
+                t.amount, t.created_at AS timestamp,
+                COALESCE(t.transaction_hash, '') AS transaction_hash, t.status
+         FROM transactions t
+         LEFT JOIN collection_rewards cr ON cr.token_address = t.token_address AND cr.is_active = TRUE
+         LEFT JOIN trait_rewards tr ON tr.token_address = t.token_address AND tr.is_active = TRUE
+         ${whereClause} ORDER BY t.created_at DESC`,
         params
       );
-      const csv = ['wallet_address,collection_name,token_symbol,amount,timestamp,transaction_hash',
+      const csv = ['wallet_address,token_symbol,amount,timestamp,transaction_hash,status',
         ...csvResult.rows.map(row =>
-          [row.wallet_address, row.collection_name, row.token_symbol, row.amount, row.timestamp, row.transaction_hash]
+          [row.wallet_address, row.token_symbol, row.amount, row.timestamp, row.transaction_hash, row.status]
             .map(v => `"${String(v ?? '').replace(/"/g, '""')}"`)
             .join(',')
         )
@@ -641,13 +666,17 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
     }
 
     const recordsResult = await pool.query(
-      `SELECT t.id, t.wallet_address, '' AS collection_name,
-              '' AS token_symbol, t.amount, t.created_at AS timestamp,
+      `SELECT t.id, t.wallet_address,
+              COALESCE(cr.token_symbol, tr.token_symbol, t.token_address) AS token_symbol,
+              t.token_address, t.amount, t.created_at AS timestamp,
               COALESCE(t.transaction_hash, '') AS transaction_hash, t.status
-       ${baseSelect} ORDER BY t.created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
+       FROM transactions t
+       LEFT JOIN collection_rewards cr ON cr.token_address = t.token_address AND cr.is_active = TRUE
+       LEFT JOIN trait_rewards tr ON tr.token_address = t.token_address AND tr.is_active = TRUE
+       ${whereClause} ORDER BY t.created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
       [...params, pageLimit, offset]
     );
-    return res.json({ success: true, data: { records: recordsResult.rows, total: stats.count, stats } });
+    return res.json({ success: true, data: { records: recordsResult.rows, total: stats.total_claims, stats } });
   } catch (error) {
     console.error('Error in GET /admin/analytics/claims:', error);
     return res.status(500).json({ success: false, message: 'Failed to fetch claims analytics' });
