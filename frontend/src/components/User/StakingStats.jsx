@@ -243,7 +243,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
       )}
       {airdropSuccess && (
         <div className="bg-green-950/60 border border-green-700 text-green-400 px-4 py-3 rounded-xl mb-4 text-sm flex justify-between items-center">
-          <span>Claimed {airdropSuccess.tokenAmount} {airdropSuccess.tokenSymbol}!</span>
+          <span>Claimed {parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })} {airdropSuccess.tokenSymbol}!</span>
           <button onClick={() => setAirdropSuccess(null)} className="text-green-600 hover:text-green-400 ml-4">✕</button>
         </div>
       )}
@@ -335,7 +335,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
                     <div key={airdrop.airdrop_config_id} className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 flex justify-between items-center hover:border-green-700 transition-colors">
                       <div>
                         <div className="text-sm font-medium text-green-300">{airdrop.collection_name} — {airdrop.token_symbol}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{parseFloat(airdrop.token_amount)} {airdrop.token_symbol}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{parseFloat(airdrop.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} {airdrop.token_symbol}</div>
                         <div className={`text-xs mt-0.5 ${expired ? 'text-red-500' : 'text-green-600'}`}>
                           {formatCountdown(airdrop.time_remaining_seconds)}
                         </div>
@@ -429,7 +429,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
                 <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 mb-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">You receive</span>
-                    <span className="text-green-400 font-semibold">{parseFloat(airdropQuote.token_amount)} {airdropQuote.airdrop.token_symbol}</span>
+                    <span className="text-green-400 font-semibold">{parseFloat(airdropQuote.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} {airdropQuote.airdrop.token_symbol}</span>
                   </div>
                   {airdropQuote.claim_fee > 0 && (
                     <div className="flex justify-between text-sm">
