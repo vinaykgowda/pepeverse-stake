@@ -3,6 +3,8 @@
 import { PublicKey } from '@solana/web3.js';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
+import { BackpackWalletAdapter } from '@solana/wallet-adapter-backpack';
+import { LedgerWalletAdapter } from '@solana/wallet-adapter-ledger';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import api from './api';
 import heliusService from './helius';
@@ -14,7 +16,9 @@ import { Buffer } from 'buffer';
 // Supported wallets - configured for mainnet (Requirements 2.2, 23.2)
 const SUPPORTED_WALLETS = [
   new PhantomWalletAdapter({ network: WalletAdapterNetwork.Mainnet }),
-  new SolflareWalletAdapter({ network: WalletAdapterNetwork.Mainnet })
+  new SolflareWalletAdapter({ network: WalletAdapterNetwork.Mainnet }),
+  new BackpackWalletAdapter(),
+  new LedgerWalletAdapter(),
 ];
 
 // Current connected wallet
