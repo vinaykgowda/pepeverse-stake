@@ -617,15 +617,21 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
     // Per-token breakdown
     const tokenStatsResult = await pool.query(
       `SELECT
-         COALESCE(cr.token_symbol, tr.token_symbol, t.token_address) AS token_symbol,
+         COALESCE(tok.token_symbol, t.token_address) AS token_symbol,
          t.token_address,
          COUNT(*) AS claim_count,
          SUM(t.amount) AS total_amount
        FROM transactions t
-       LEFT JOIN collection_rewards cr ON cr.token_address = t.token_address AND cr.is_active = TRUE
-       LEFT JOIN trait_rewards tr ON tr.token_address = t.token_address AND tr.is_active = TRUE
+       LEFT JOIN (
+         SELECT token_address, MAX(token_symbol) AS token_symbol
+         FROM (
+           SELECT token_address, token_symbol FROM collection_rewards WHERE is_active = TRUE
+           UNION
+           SELECT token_address, token_symbol FROM trait_rewards WHERE is_active = TRUE
+         ) all_tokens GROUP BY token_address
+       ) tok ON tok.token_address = t.token_address
        ${whereClause}
-       GROUP BY t.token_address, cr.token_symbol, tr.token_symbol
+       GROUP BY t.token_address, tok.token_symbol
        ORDER BY total_amount DESC`,
       params
     );
@@ -644,7 +650,7 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
     if (exportFormat === 'csv') {
       const csvResult = await pool.query(
         `SELECT t.wallet_address,
-                COALESCE(cr.token_symbol, tr.token_symbol, t.token_address) AS token_symbol,
+                COALESCE(tok.token_symbol, t.token_address) AS token_symbol,
                 t.amount, t.created_at AS timestamp,
                 COALESCE(t.transaction_hash, '') AS transaction_hash, t.status
          FROM transactions t
@@ -667,12 +673,18 @@ router.get('/analytics/claims', verifyJWT, verifyAdmin, async (req, res) => {
 
     const recordsResult = await pool.query(
       `SELECT t.id, t.wallet_address,
-              COALESCE(cr.token_symbol, tr.token_symbol, t.token_address) AS token_symbol,
+              COALESCE(tok.token_symbol, t.token_address) AS token_symbol,
               t.token_address, t.amount, t.created_at AS timestamp,
               COALESCE(t.transaction_hash, '') AS transaction_hash, t.status
        FROM transactions t
-       LEFT JOIN collection_rewards cr ON cr.token_address = t.token_address AND cr.is_active = TRUE
-       LEFT JOIN trait_rewards tr ON tr.token_address = t.token_address AND tr.is_active = TRUE
+       LEFT JOIN (
+         SELECT token_address, MAX(token_symbol) AS token_symbol
+         FROM (
+           SELECT token_address, token_symbol FROM collection_rewards WHERE is_active = TRUE
+           UNION
+           SELECT token_address, token_symbol FROM trait_rewards WHERE is_active = TRUE
+         ) all_tokens GROUP BY token_address
+       ) tok ON tok.token_address = t.token_address
        ${whereClause} ORDER BY t.created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
       [...params, pageLimit, offset]
     );
