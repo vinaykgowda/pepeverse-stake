@@ -204,7 +204,9 @@ const AirdropManager = () => {
     setEligibleModal({ id, wallets: [], loading: true });
     try {
       const res = await api.admin.getEligibleWallets(id);
-      setEligibleModal({ id, wallets: res.data.data || [], loading: false });
+      const data = res.data.data;
+      const wallets = Array.isArray(data) ? data : (data?.wallets || []);
+      setEligibleModal({ id, wallets, source: data?.source, loading: false });
     } catch (err) {
       setEligibleModal({ id, wallets: [], loading: false, error: 'Failed to load eligible wallets' });
     }
@@ -505,6 +507,7 @@ const AirdropManager = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Token</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount / NFT</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Eligible Wallets</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining Claims</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -530,6 +533,9 @@ const AirdropManager = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                       {airdrop.eligible_count != null ? airdrop.eligible_count : '—'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      {airdrop.remaining_count != null ? airdrop.remaining_count : '—'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
                       <button

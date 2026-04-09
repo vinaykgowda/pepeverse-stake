@@ -277,7 +277,8 @@ router.get('/airdrops', verifyJWT, verifyAdmin, async (req, res) => {
          ac.airdrop_type, ac.token_address, ac.token_symbol, ac.token_decimals,
          ac.amount_per_nft, ac.minimum_threshold, ac.trait_type, ac.trait_value,
          ac.status, ac.activated_at, ac.expires_at, ac.created_at, ac.updated_at,
-         COUNT(snap.id) AS eligible_count
+         COUNT(snap.id) AS eligible_count,
+         COUNT(CASE WHEN snap.claimed = false THEN 1 END) AS remaining_count
        FROM airdrop_configs ac
        JOIN collections c ON ac.collection_id = c.id
        LEFT JOIN airdrop_snapshots snap ON snap.airdrop_config_id = ac.id
