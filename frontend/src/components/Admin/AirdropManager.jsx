@@ -529,7 +529,7 @@ const AirdropManager = () => {
                       {parseFloat(airdrop.amount_per_nft)} ${airdrop.token_symbol}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {airdrop.eligible_wallet_count != null ? airdrop.eligible_wallet_count : '—'}
+                      {airdrop.eligible_count != null ? airdrop.eligible_count : '—'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
                       <button
