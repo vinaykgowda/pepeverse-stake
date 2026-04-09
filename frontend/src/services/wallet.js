@@ -12,14 +12,22 @@ import networkConfig from '../config/network';
 
 // Import Buffer polyfill for browser environment
 import { Buffer } from 'buffer';
+if (typeof window !== 'undefined') window.Buffer = Buffer;
+if (typeof globalThis !== 'undefined') globalThis.Buffer = Buffer;
 
-// Supported wallets - configured for mainnet (Requirements 2.2, 23.2)
-const SUPPORTED_WALLETS = [
-  new PhantomWalletAdapter({ network: WalletAdapterNetwork.Mainnet }),
-  new SolflareWalletAdapter({ network: WalletAdapterNetwork.Mainnet }),
-  new BackpackWalletAdapter(),
-  new LedgerWalletAdapter(),
-];
+// Lazy-initialize wallet adapters so Buffer polyfill is set before instantiation
+let _wallets = null;
+const getSupportedWallets = () => {
+  if (!_wallets) {
+    _wallets = [
+      new PhantomWalletAdapter({ network: WalletAdapterNetwork.Mainnet }),
+      new SolflareWalletAdapter({ network: WalletAdapterNetwork.Mainnet }),
+      new BackpackWalletAdapter(),
+      new LedgerWalletAdapter(),
+    ];
+  }
+  return _wallets;
+};
 
 // Current connected wallet
 let currentWallet = null;
@@ -30,7 +38,7 @@ const initWallet = async (walletName) => {
     console.log(`Initializing wallet: ${walletName}`);
 
     // Find requested wallet adapter
-    const walletAdapter = SUPPORTED_WALLETS.find(
+    const walletAdapter = getSupportedWallets().find(
       adapter => adapter.name.toLowerCase() === walletName.toLowerCase()
     );
 
