@@ -147,7 +147,7 @@ const CollectionManager = () => {
       {collections.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {collections.map((col) => (
-            <div key={col.id} className="border p-4 rounded shadow">
+            <div key={col.id} className="bg-white border p-4 rounded shadow text-gray-900">
               <h3 className="text-lg font-semibold">{col.name}</h3>
               <p>Creator: {col.creator_address}</p>
               <p>Items in Hashlist: {col.hashlist_count || 0}</p>

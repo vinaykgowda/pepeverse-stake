@@ -779,8 +779,13 @@ router.get('/collections', verifyJWT, verifyAdmin, async (req, res) => {
       SELECT c.*,
         (SELECT COUNT(*) FROM staked_nfts sn WHERE sn.collection_id = c.id) AS staked_count,
         CASE
-          WHEN c.hashlist IS NOT NULL
-          THEN array_length(regexp_split_to_array(trim(c.hashlist), E'\\\\+\\n|\\n\\\\+|\\\\+'), 1)
+          WHEN c.hashlist IS NOT NULL AND trim(c.hashlist) != ''
+          THEN array_length(
+            ARRAY(
+              SELECT trim(regexp_replace(addr, '^\\+|\\+$', '', 'g'))
+              FROM unnest(regexp_split_to_array(trim(c.hashlist), E'\\n')) AS addr
+              WHERE trim(regexp_replace(addr, '^\\+|\\+$', '', 'g')) != ''
+            ), 1)
           ELSE 0
         END AS hashlist_count
       FROM collections c ORDER BY c.id
