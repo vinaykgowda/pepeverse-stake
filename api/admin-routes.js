@@ -220,7 +220,7 @@ router.get('/token-balances', verifyJWT, verifyAdmin, async (req, res) => {
       FROM (
         SELECT token_address, token_symbol, token_decimals FROM collection_rewards
         UNION
-        SELECT token_address, token_symbol, 9 AS token_decimals FROM trait_rewards
+        SELECT token_address, token_symbol, COALESCE(token_decimals, 9) AS token_decimals FROM trait_rewards
       ) all_tokens ORDER BY token_symbol
     `);
     const walletResult = await pool.query(`SELECT value FROM settings WHERE key_name = 'rewards_wallet'`);
@@ -253,7 +253,7 @@ router.get('/tokens', verifyJWT, verifyAdmin, async (req, res) => {
       FROM (
         SELECT token_address, token_symbol, token_decimals FROM collection_rewards
         UNION
-        SELECT token_address, token_symbol, 9 AS token_decimals FROM trait_rewards
+        SELECT token_address, token_symbol, COALESCE(token_decimals, 9) AS token_decimals FROM trait_rewards
       ) all_tokens ORDER BY token_symbol
     `);
     return res.json({ success: true, data: result.rows });
