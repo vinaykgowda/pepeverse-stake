@@ -280,9 +280,11 @@ const StakingStats = ({ walletNFTs = [] }) => {
               </div>
 
               {/* Collection stats: global_staked / hashlist_count */}
-              {globalStats.length > 0 && (
-                <div className="pt-3 border-t border-[#1e3a1e]">
-                  <div className="text-xs text-green-600 uppercase tracking-widest mb-3">Collection Stats</div>
+              <div className="pt-3 border-t border-[#1e3a1e]">
+                <div className="text-xs text-green-600 uppercase tracking-widest mb-3">Collection Stats</div>
+                {globalStats.length === 0 ? (
+                  <div className="text-sm text-green-800 py-1">Loading...</div>
+                ) : (
                   <div className="space-y-2">
                     {globalStats.map(g => (
                       <div key={g.id} className="flex justify-between items-center text-sm">
@@ -293,8 +295,8 @@ const StakingStats = ({ walletNFTs = [] }) => {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Right: Rewards per token + Claim */}
