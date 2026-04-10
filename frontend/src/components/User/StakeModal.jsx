@@ -83,22 +83,29 @@ const StakeModal = ({ selectedNFTs, walletNFTs, collections, onSuccess, onClose 
       }
 
       setStatus('Staking NFTs...');
-      const firstNFT = walletNFTs.find(n => n.mintAddress === selectedNFTs[0]);
-      const collectionId = firstNFT?.collectionId;
-      if (!collectionId) throw new Error('Could not determine collection');
 
-      const nftsPayload = selectedNFTs.map(m => {
-        const nft = walletNFTs.find(n => n.mintAddress === m);
-        // attributes from Helius DAS format: [{trait_type, value}]
+      // Group NFTs by collection — each collection gets its own stake call
+      const byCollection = {};
+      for (const mintAddress of selectedNFTs) {
+        const nft = walletNFTs.find(n => n.mintAddress === mintAddress);
+        const colId = nft?.collectionId || nft?.collection_id;
+        if (!colId) throw new Error(`Could not determine collection for NFT ${mintAddress}`);
+        if (!byCollection[colId]) byCollection[colId] = [];
         const traits = nft?.attributes || nft?.traits || [];
-        return { mintAddress: m, traits };
-      });
-      const result = await api.nft.stakeNFTs(nftsPayload, collectionId, paymentSignature);
+        byCollection[colId].push({ mintAddress, traits });
+      }
 
-      if (result.data.success) {
+      let anyFailed = false;
+      for (const [colId, nftsPayload] of Object.entries(byCollection)) {
+        const result = await api.nft.stakeNFTs(nftsPayload, parseInt(colId), paymentSignature);
+        if (!result.data.success) {
+          anyFailed = true;
+          setError(result.data.message || 'Staking failed for some NFTs');
+        }
+      }
+
+      if (!anyFailed) {
         onSuccess();
-      } else {
-        setError(result.data.message || 'Staking failed');
       }
     } catch (e) {
       setError(e.response?.data?.message || e.message || 'An error occurred');

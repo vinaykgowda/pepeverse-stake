@@ -189,29 +189,41 @@ const axios = require('axios');
 
 heliusRouter.post('/nfts/by-owner', async (req, res) => {
   try {
-    const { ownerAddress, collectionAddress, page = 1, limit = 1000 } = req.body;
+    const { ownerAddress, collectionAddress } = req.body;
     if (!ownerAddress) return res.status(400).json({ error: 'ownerAddress is required' });
 
     const endpoint = process.env.HELIUS_MAINNET_ENDPOINT;
     const apiKey = process.env.HELIUS_API_KEY;
     if (!endpoint || !apiKey) return res.status(500).json({ error: 'Helius not configured' });
 
-    const payload = {
-      jsonrpc: '2.0', id: 'get-assets-by-owner', method: 'getAssetsByOwner',
-      params: { ownerAddress, page, limit, displayOptions: { showFungible: false, showNativeBalance: false } }
-    };
-
     const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
-    const response = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+    const PAGE_LIMIT = 1000;
+    let allItems = [];
+    let page = 1;
 
-    let items = response.data?.result?.items || [];
+    // Paginate through all results
+    while (true) {
+      const payload = {
+        jsonrpc: '2.0', id: 'get-assets-by-owner', method: 'getAssetsByOwner',
+        params: { ownerAddress, page, limit: PAGE_LIMIT, displayOptions: { showFungible: false, showNativeBalance: false } }
+      };
+      const response = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+      const items = response.data?.result?.items || [];
+      allItems = allItems.concat(items);
+      // Stop if we got fewer than PAGE_LIMIT (last page)
+      if (items.length < PAGE_LIMIT) break;
+      page++;
+      // Safety cap at 10 pages (10,000 NFTs)
+      if (page > 10) break;
+    }
+
     if (collectionAddress) {
-      items = items.filter(item => {
+      allItems = allItems.filter(item => {
         const groupings = item.grouping || [];
         return groupings.some(g => g.group_key === 'collection' && g.group_value === collectionAddress);
       });
     }
-    res.json({ success: true, data: { items, total: items.length } });
+    res.json({ success: true, data: { items: allItems, total: allItems.length } });
   } catch (e) {
     console.error('[helius/nfts/by-owner]', e.message);
     res.status(500).json({ error: 'Failed to fetch NFTs from Helius' });
