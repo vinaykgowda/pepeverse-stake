@@ -241,12 +241,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
           <button onClick={() => setClaimSuccess(null)} className="text-green-600 hover:text-green-400 ml-4">✕</button>
         </div>
       )}
-      {airdropSuccess && (
-        <div className="bg-green-950/60 border border-green-700 text-green-400 px-4 py-3 rounded-xl mb-4 text-sm flex justify-between items-center">
-          <span>Claimed {parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })} {airdropSuccess.tokenSymbol}!</span>
-          <button onClick={() => setAirdropSuccess(null)} className="text-green-600 hover:text-green-400 ml-4">✕</button>
-        </div>
-      )}
+      {airdropSuccess && null /* shown as popup below */}
 
       {(loading || loadingStats) && !statsLoaded ? (
         <div className="flex justify-center items-center py-6">
@@ -430,42 +425,92 @@ const StakingStats = ({ walletNFTs = [] }) => {
       {showAirdropModal && airdropQuote && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" onClick={!airdropProcessing ? () => { setShowAirdropModal(false); setAirdropQuote(null); } : undefined} />
-          <div className="relative bg-[#111a11] border border-[#1e3a1e] rounded-2xl shadow-[0_0_60px_rgba(34,197,94,0.2)] max-w-sm w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-green-400 mb-5">Confirm Airdrop Claim</h3>
-            {airdropProcessing ? (
-              <div className="flex flex-col items-center py-8">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-green-500 mb-4" />
-                <p className="text-green-300 text-sm">Processing...</p>
-              </div>
-            ) : (
-              <>
-                {airdropError && (
-                  <div className="bg-red-950/60 border border-red-700 text-red-400 px-4 py-3 rounded-xl mb-4 text-sm">{airdropError}</div>
-                )}
-                <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 mb-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">You receive</span>
-                    <span className="text-green-400 font-semibold">{parseFloat(airdropQuote.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} {airdropQuote.airdrop.token_symbol}</span>
-                  </div>
-                  {airdropQuote.claim_fee > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Claim fee</span>
-                      <span className="text-yellow-400">{formatSol(airdropQuote.claim_fee)} SOL</span>
-                    </div>
+          {/* Animated gradient border wrapper */}
+          <div className="relative rounded-2xl p-[2px] max-w-sm w-full mx-4"
+            style={{ background: 'linear-gradient(90deg, #f59e0b, #ef4444, #ec4899, #f59e0b)', backgroundSize: '300% 100%', animation: 'shimmer 2.5s linear infinite' }}>
+            <div className="relative bg-[#1a0d00] rounded-[14px] p-6">
+              <h3 className="text-lg font-bold text-amber-400 mb-5">🎁 Confirm Airdrop Claim</h3>
+              {airdropProcessing ? (
+                <div className="flex flex-col items-center py-8">
+                  <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-amber-500 mb-4" />
+                  <p className="text-amber-300 text-sm">Sending your airdrop...</p>
+                </div>
+              ) : (
+                <>
+                  {airdropError && (
+                    <div className="bg-red-950/60 border border-red-700 text-red-400 px-4 py-3 rounded-xl mb-4 text-sm">{airdropError}</div>
                   )}
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={() => { setShowAirdropModal(false); setAirdropQuote(null); }}
-                    className="flex-1 py-2.5 border border-[#1e3a1e] rounded-xl text-sm font-medium text-gray-400 bg-[#0d1a0d] hover:border-green-700 hover:text-green-400 transition-all">
-                    Cancel
-                  </button>
-                  <button onClick={executeAirdropClaim}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)]">
-                    {airdropQuote.claim_fee > 0 ? `Pay & Claim` : 'Claim Airdrop'}
-                  </button>
-                </div>
-              </>
-            )}
+                  <div className="bg-black/30 border border-amber-900/40 rounded-xl p-4 mb-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-amber-700">You receive</span>
+                      <span className="text-white font-extrabold text-base">
+                        {parseFloat(airdropQuote.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        <span className="text-amber-400 ml-1">{airdropQuote.airdrop.token_symbol}</span>
+                      </span>
+                    </div>
+                    {airdropQuote.claim_fee > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-amber-700">Claim fee</span>
+                        <span className="text-orange-400">{formatSol(airdropQuote.claim_fee)} SOL</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => { setShowAirdropModal(false); setAirdropQuote(null); }}
+                      className="flex-1 py-2.5 border border-amber-900/40 rounded-xl text-sm font-medium text-amber-700 bg-black/20 hover:border-amber-600 hover:text-amber-400 transition-all">
+                      Cancel
+                    </button>
+                    <button onClick={executeAirdropClaim}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-extrabold text-black bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.5)]">
+                      {airdropQuote.claim_fee > 0 ? 'Pay & Claim' : 'Claim Airdrop'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Airdrop Success Popup */}
+      {airdropSuccess && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setAirdropSuccess(null)} />
+          <div className="relative rounded-2xl p-[2px] max-w-sm w-full mx-4"
+            style={{ background: 'linear-gradient(90deg, #f59e0b, #ef4444, #ec4899, #f59e0b)', backgroundSize: '300% 100%', animation: 'shimmer 2.5s linear infinite' }}>
+            <div className="relative bg-[#1a0d00] rounded-[14px] p-6 text-center">
+              <div className="text-5xl mb-3">🎉</div>
+              <h3 className="text-xl font-extrabold text-amber-400 mb-1">Airdrop Claimed!</h3>
+              <p className="text-white font-bold text-2xl mb-1">
+                {parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                <span className="text-amber-400 ml-2">{airdropSuccess.tokenSymbol}</span>
+              </p>
+              <p className="text-amber-700 text-xs mb-5">sent to your wallet</p>
+              <div className="flex flex-col gap-3">
+                <a
+                  href={`https://twitter.com/intent/tweet?text=${encodeURIComponent((() => {
+                    const tweets = [
+                      `Just claimed my ${parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })} $${airdropSuccess.tokenSymbol} airdrop from @pepegodssol 🔥 The Pepeverse rewards its holders! Are you staking yet? 👑`,
+                      `FREE ${parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })} $${airdropSuccess.tokenSymbol} just dropped into my wallet from @pepegodssol 🎁 Stake your NFTs and get rewarded. This is just the beginning 🚀`,
+                      `Airdrop secured! 💰 ${parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })} $${airdropSuccess.tokenSymbol} from @pepegodssol — staking in the Pepeverse is paying off big time 🐸👑`,
+                      `GM! Just claimed ${parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })} $${airdropSuccess.tokenSymbol} from @pepegodssol airdrop 🎉 Pepe Gods holders eat well. Stake yours now 🔥`,
+                      `The Pepeverse delivers! 🐸 Claimed ${parseFloat(airdropSuccess.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })} $${airdropSuccess.tokenSymbol} from @pepegodssol — this is what diamond hands look like 💎`,
+                    ];
+                    return tweets[Math.floor(Math.random() * tweets.length)];
+                  })())}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-black border border-gray-700 hover:bg-gray-900 transition-all flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                  Share on X
+                </a>
+                <button onClick={() => setAirdropSuccess(null)}
+                  className="w-full py-2.5 rounded-xl text-sm font-extrabold text-black bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.4)]">
+                  Awesome! 🔥
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
