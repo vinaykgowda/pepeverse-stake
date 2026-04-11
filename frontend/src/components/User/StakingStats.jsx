@@ -329,7 +329,10 @@ const StakingStats = ({ walletNFTs = [] }) => {
           {/* Airdrops section */}
           {(airdrops.length > 0 || airdropError) && (
             <div className="border-t border-[#1e3a1e] pt-5">
-              <div className="text-xs text-green-600 uppercase tracking-widest mb-3">Available Airdrops</div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">🎁 Available Airdrops</span>
+                <span className="px-2 py-0.5 text-xs font-bold bg-amber-500 text-black rounded-full animate-pulse">{airdrops.length}</span>
+              </div>
               {airdropError && (
                 <div className="bg-red-950/60 border border-red-700 text-red-400 px-3 py-2 rounded-xl mb-3 text-sm flex justify-between">
                   <span>{airdropError}</span>
@@ -340,21 +343,26 @@ const StakingStats = ({ walletNFTs = [] }) => {
                 {airdrops.map(airdrop => {
                   const expired = airdrop.time_remaining_seconds <= 0;
                   return (
-                    <div key={airdrop.airdrop_config_id} className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 flex justify-between items-center hover:border-green-700 transition-colors">
-                      <div>
-                        <div className="text-sm font-medium text-green-300">{airdrop.collection_name} — {airdrop.token_symbol}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{parseFloat(airdrop.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} {airdrop.token_symbol}</div>
-                        <div className={`text-xs mt-0.5 ${expired ? 'text-red-500' : 'text-green-600'}`}>
-                          {formatCountdown(airdrop.time_remaining_seconds)}
+                    <div key={airdrop.airdrop_config_id} className="relative rounded-xl p-[2px] overflow-hidden"
+                      style={{ background: 'linear-gradient(90deg, #f59e0b, #ef4444, #ec4899, #f59e0b)', backgroundSize: '300% 100%', animation: 'shimmer 2.5s linear infinite' }}>
+                      <div className="bg-[#1a0d00] rounded-[10px] p-4 flex justify-between items-center">
+                        <div>
+                          <div className="text-sm font-bold text-amber-300">{airdrop.collection_name} — {airdrop.token_symbol}</div>
+                          <div className="text-base font-extrabold text-white mt-0.5">
+                            {parseFloat(airdrop.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} <span className="text-amber-400">{airdrop.token_symbol}</span>
+                          </div>
+                          <div className={`text-xs mt-1 font-medium ${expired ? 'text-red-400' : 'text-amber-500'}`}>
+                            ⏱ {formatCountdown(airdrop.time_remaining_seconds)}
+                          </div>
                         </div>
+                        <button
+                          onClick={() => handleAirdropClaim(airdrop)}
+                          disabled={expired || airdropProcessing}
+                          className="px-5 py-2.5 rounded-xl text-sm font-extrabold text-black bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.5)] disabled:from-gray-700 disabled:to-gray-800 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed"
+                        >
+                          {expired ? 'Expired' : 'Claim'}
+                        </button>
                       </div>
-                      <button
-                        onClick={() => handleAirdropClaim(airdrop)}
-                        disabled={expired || airdropProcessing}
-                        className="px-4 py-2 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_10px_rgba(34,197,94,0.3)] disabled:bg-green-900 disabled:text-green-700 disabled:shadow-none disabled:cursor-not-allowed"
-                      >
-                        {expired ? 'Expired' : 'Claim'}
-                      </button>
                     </div>
                   );
                 })}
