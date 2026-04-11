@@ -612,13 +612,20 @@ const AirdropManager = () => {
                       <tr>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wallet Address</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Token Amount</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Claimed</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {eligibleModal.wallets.map((w, i) => (
-                        <tr key={w.wallet_address || i}>
+                        <tr key={w.wallet_address || i} className={w.claimed ? 'bg-green-50' : ''}>
                           <td className="px-4 py-3 text-sm font-mono text-gray-900 break-all">{w.wallet_address}</td>
                           <td className="px-4 py-3 text-sm text-right text-gray-900">{parseFloat(w.token_amount)}</td>
+                          <td className="px-4 py-3 text-center">
+                            {w.claimed
+                              ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500 text-white text-xs">✓</span>
+                              : <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-gray-400 text-xs">–</span>
+                            }
+                          </td>
                         </tr>
                       ))}
                     </tbody>
