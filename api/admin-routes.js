@@ -101,6 +101,11 @@ async function generateSnapshot(airdropConfigId, client) {
   }
 
   if (eligibleWallets.length > 0) {
+    // Delete any existing unclaimed snapshots before re-inserting (handles re-activation)
+    await client.query(
+      `DELETE FROM airdrop_snapshots WHERE airdrop_config_id = $1 AND claimed = false`,
+      [airdropConfigId]
+    );
     await client.query(
       `INSERT INTO airdrop_snapshots (airdrop_config_id, wallet_address, eligible_nft_count, token_amount)
        SELECT $1, UNNEST($2::text[]), UNNEST($3::integer[]), UNNEST($4::numeric[])`,
