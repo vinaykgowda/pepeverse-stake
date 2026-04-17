@@ -11,6 +11,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
   const [stats, setStats] = useState({ totalStaked: 0, stakedByCollection: [], totalRewards: 0 });
   const [rewards, setRewards] = useState([]);
   const [globalStats, setGlobalStats] = useState([]);
+  const [dailyRates, setDailyRates] = useState({}); // { token_address: daily_rate }
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsLoaded, setStatsLoaded] = useState(false);
 
@@ -37,17 +38,27 @@ const StakingStats = ({ walletNFTs = [] }) => {
     try {
       loadingRef.current = true;
       setLoadingStats(true);
-      const [statsData, stakedNFTs, rewardsData, globalData] = await Promise.all([
+      const [statsData, stakedNFTs, rewardsData, globalData, perNftData] = await Promise.all([
         getStakingStats(),
         getStakedNFTs(),
         calculateRewards(),
         api.staking.getGlobalStats().then(r => r.data.data).catch(() => []),
+        api.staking.getPerNftEarnings().then(r => r.data.data).catch(() => ({})),
       ]);
       const rewardsList = rewardsData || [];
       const totalRewards = rewardsList.reduce((t, r) => t + (r.amount || 0), 0);
       setStats({ totalStaked: stakedNFTs?.length || 0, stakedByCollection: statsData || [], totalRewards });
       setRewards(rewardsList);
       setGlobalStats(globalData || []);
+
+      // Sum daily rates per token across all staked NFTs
+      const rates = {};
+      Object.values(perNftData || {}).forEach(nftTokens => {
+        nftTokens.forEach(({ token_symbol, total_rate }) => {
+          rates[token_symbol] = (rates[token_symbol] || 0) + (total_rate || 0);
+        });
+      });
+      setDailyRates(rates);
       setStatsLoaded(true);
     } catch (e) {
       console.error('Error loading stats:', e);
@@ -281,14 +292,22 @@ const StakingStats = ({ walletNFTs = [] }) => {
                   <div className="text-sm text-green-800 py-1">Loading...</div>
                 ) : (
                   <div className="space-y-2">
-                    {globalStats.map(g => (
-                      <div key={g.id} className="flex justify-between items-center text-sm">
-                        <span className="text-gray-300">{g.name}</span>
-                        <span className="font-semibold text-green-400">
-                          {g.global_staked_count}/{g.hashlist_count || '?'}
-                        </span>
-                      </div>
-                    ))}
+                    {globalStats.map(g => {
+                      const pct = g.hashlist_count > 0
+                        ? Math.round((g.global_staked_count / g.hashlist_count) * 100)
+                        : 0;
+                      return (
+                        <div key={g.id} className="flex justify-between items-center text-sm">
+                          <span className="text-gray-300">
+                            {g.name}
+                            <span className="ml-1.5 text-xs text-green-800">({pct}% staked)</span>
+                          </span>
+                          <span className="font-semibold text-green-400">
+                            {g.global_staked_count}/{g.hashlist_count || '?'}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -304,7 +323,16 @@ const StakingStats = ({ walletNFTs = [] }) => {
                   <div className="space-y-2">
                     {rewards.map((r, i) => (
                       <div key={i} className="flex justify-between items-baseline">
-                        <span className="text-sm text-gray-400">{r.token_symbol}</span>
+                        <div>
+                          <span className="text-sm text-gray-400">{r.token_symbol}</span>
+                          {dailyRates[r.token_symbol] > 0 && (
+                            <span className="ml-2 text-xs text-green-800">
+                              {dailyRates[r.token_symbol] % 1 === 0
+                                ? dailyRates[r.token_symbol]
+                                : dailyRates[r.token_symbol].toFixed(2)}/day
+                            </span>
+                          )}
+                        </div>
                         <span className="text-lg font-bold text-green-400">{formatToken(r.amount)}</span>
                       </div>
                     ))}
