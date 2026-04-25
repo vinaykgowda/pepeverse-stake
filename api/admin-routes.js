@@ -287,6 +287,23 @@ router.get('/rewards-breakdown', verifyJWT, verifyAdmin, async (req, res) => {
   }
 });
 
+// GET /api/v1/admin/token-prices?ids=addr1,addr2 — proxy Jupiter Price API V2
+router.get('/token-prices', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const { ids } = req.query;
+    if (!ids) return res.status(400).json({ success: false, message: 'ids query param required' });
+    const response = await axios.get(`https://api.jup.ag/price/v2?ids=${ids}`, { timeout: 10000 });
+    const prices = {};
+    Object.entries(response.data?.data || {}).forEach(([mint, info]) => {
+      prices[mint] = parseFloat(info?.price || 0);
+    });
+    return res.json({ success: true, data: prices });
+  } catch (e) {
+    console.error('[admin/token-prices]', e.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch token prices' });
+  }
+});
+
 // GET /api/v1/admin/token-balances
 router.get('/token-balances', verifyJWT, verifyAdmin, async (req, res) => {
   try {

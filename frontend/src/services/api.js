@@ -143,6 +143,7 @@ const adminApi = {
 
   // Rewards
   getRewardsBreakdown: () => api.get('/admin/rewards-breakdown'),
+  getTokenPrices: (ids) => api.get(`/admin/token-prices?ids=${ids.join(',')}`),
   getRewards: () => api.get('/admin/rewards'),
   addReward: (reward) => api.post('/admin/rewards', reward),
   updateReward: (id, reward) => api.put(`/admin/rewards/${id}`, reward),

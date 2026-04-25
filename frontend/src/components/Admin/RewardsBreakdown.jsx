@@ -20,7 +20,15 @@ const PeriodRow = ({ label, row, isTotal }) => (
   </tr>
 );
 
-const TokenTable = ({ title, rows, detailKey, detailCols }) => (
+const fmtUsd = (tokens, priceUsd) => {
+  if (!priceUsd || !tokens) return null;
+  const usd = parseFloat(tokens) * priceUsd;
+  if (usd >= 1000000) return `$${(usd / 1000000).toFixed(2)}M`;
+  if (usd >= 1000) return `$${(usd / 1000).toFixed(2)}K`;
+  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+};
+
+const TokenTable = ({ title, rows, detailKey, detailCols, prices }) => (
   <div className="bg-white rounded-lg shadow mb-6 overflow-hidden">
     <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
       <h3 className="text-base font-semibold text-gray-800">{title}</h3>
@@ -31,9 +39,14 @@ const TokenTable = ({ title, rows, detailKey, detailCols }) => (
       rows.map(token => (
         <div key={token.token_symbol} className="border-b border-gray-100 last:border-0">
           {/* Token header */}
-          <div className="px-6 py-3 bg-indigo-50 flex items-center gap-2">
+          <div className="px-6 py-3 bg-indigo-50 flex items-center gap-3">
             <span className="font-bold text-indigo-800 text-sm">{token.token_symbol}</span>
             <span className="text-xs text-gray-500 font-mono">{token.token_address?.slice(0,8)}...</span>
+            {prices[token.token_address] > 0 && (
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                ${prices[token.token_address].toFixed(6)} / token
+              </span>
+            )}
           </div>
           <table className="min-w-full">
             <thead>
@@ -44,6 +57,7 @@ const TokenTable = ({ title, rows, detailKey, detailCols }) => (
                 <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Week</th>
                 <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Month</th>
                 <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Year</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-green-600 uppercase">Year (USD)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -61,6 +75,7 @@ const TokenTable = ({ title, rows, detailKey, detailCols }) => (
                   <td className="px-4 py-2 text-sm text-right text-gray-700">{fmt(d.daily * 7)}</td>
                   <td className="px-4 py-2 text-sm text-right text-gray-700">{fmt(d.daily * 30)}</td>
                   <td className="px-4 py-2 text-sm text-right text-indigo-700">{fmt(d.daily * 365)}</td>
+                  <td className="px-4 py-2 text-sm text-right text-green-700">{fmtUsd(d.daily * 365, prices[token.token_address]) || '—'}</td>
                 </tr>
               ))}
               {/* Total row */}
@@ -70,6 +85,7 @@ const TokenTable = ({ title, rows, detailKey, detailCols }) => (
                 <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmt(token.weekly)}</td>
                 <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmt(token.monthly)}</td>
                 <td className="px-4 py-2 text-sm text-right text-indigo-800 font-bold">{fmt(token.yearly)}</td>
+                <td className="px-4 py-2 text-sm text-right text-green-700 font-bold">{fmtUsd(token.yearly, prices[token.token_address]) || '—'}</td>
               </tr>
             </tbody>
           </table>
@@ -81,12 +97,31 @@ const TokenTable = ({ title, rows, detailKey, detailCols }) => (
 
 const RewardsBreakdown = () => {
   const [data, setData] = useState(null);
+  const [prices, setPrices] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     api.admin.getRewardsBreakdown()
-      .then(r => { setData(r.data.data); setLoading(false); })
+      .then(async r => {
+        const breakdown = r.data.data;
+        setData(breakdown);
+        setLoading(false);
+
+        // Collect all unique token addresses
+        const allTokens = [
+          ...breakdown.base.map(t => t.token_address),
+          ...breakdown.trait.map(t => t.token_address),
+        ].filter(Boolean);
+        const unique = [...new Set(allTokens)];
+
+        if (unique.length > 0) {
+          try {
+            const priceRes = await api.admin.getTokenPrices(unique);
+            setPrices(priceRes.data.data || {});
+          } catch { /* prices optional */ }
+        }
+      })
       .catch(e => { setError(e.response?.data?.message || 'Failed to load'); setLoading(false); });
   }, []);
 
@@ -106,6 +141,7 @@ const RewardsBreakdown = () => {
         rows={data.base}
         detailKey="collections"
         detailCols={['Collection', 'Rate']}
+        prices={prices}
       />
 
       <h3 className="text-lg font-semibold text-gray-700 mb-3 mt-6">Trait-Based Rewards</h3>
@@ -114,6 +150,7 @@ const RewardsBreakdown = () => {
         rows={data.trait}
         detailKey="traits"
         detailCols={['Collection', 'Trait', 'Rate']}
+        prices={prices}
       />
     </div>
   );
