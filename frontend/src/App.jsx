@@ -21,6 +21,7 @@ import AdminSettings from './pages/Admin/Settings';
 import AdminProfile from './pages/Admin/Profile';
 import AdminLogin from './pages/Admin/Login';
 import AdminAirdrops from './pages/Admin/Airdrops';
+import AdminClaimsAnalytics from './pages/Admin/ClaimsAnalytics';
 import AdminRewardsBreakdown from './pages/Admin/RewardsBreakdown';
 import AdminAirdropAnalytics from './pages/Admin/AirdropAnalytics';
 
