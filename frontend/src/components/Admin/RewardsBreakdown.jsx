@@ -152,6 +152,57 @@ const RewardsBreakdown = () => {
         detailCols={['Collection', 'Trait', 'Rate']}
         prices={prices}
       />
+
+      {/* Combined summary */}
+      {(() => {
+        const combined = {};
+        [...data.base, ...data.trait].forEach(t => {
+          const k = t.token_symbol;
+          if (!combined[k]) combined[k] = { token_symbol: k, token_address: t.token_address, daily: 0 };
+          combined[k].daily += t.daily;
+        });
+        const rows = Object.values(combined).map(t => ({
+          ...t,
+          weekly: t.daily * 7,
+          monthly: t.daily * 30,
+          yearly: t.daily * 365,
+        }));
+        return (
+          <div className="bg-white rounded-lg shadow mb-6 overflow-hidden mt-8">
+            <div className="px-6 py-4 border-b border-gray-100 bg-indigo-700">
+              <h3 className="text-base font-semibold text-white">📊 Total Treasury Needed (Base + Trait Combined)</h3>
+              <p className="text-indigo-200 text-xs mt-0.5">All tokens earned by stakers across all collections</p>
+            </div>
+            <table className="min-w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Token</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Per Day</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Per Week</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Per Month</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Per Year</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.map(t => (
+                  <tr key={t.token_symbol} className="hover:bg-gray-50">
+                    <td className="px-6 py-3">
+                      <div className="font-bold text-indigo-800">{t.token_symbol}</div>
+                      {prices[t.token_address] > 0 && (
+                        <div className="text-xs text-gray-400 font-mono">${prices[t.token_address].toFixed(6)}/token</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-right font-medium text-gray-800">{fmtWithUsd(t.daily, prices[t.token_address])}</td>
+                    <td className="px-6 py-3 text-sm text-right font-medium text-gray-800">{fmtWithUsd(t.weekly, prices[t.token_address])}</td>
+                    <td className="px-6 py-3 text-sm text-right font-medium text-gray-800">{fmtWithUsd(t.monthly, prices[t.token_address])}</td>
+                    <td className="px-6 py-3 text-sm text-right font-bold text-indigo-700">{fmtWithUsd(t.yearly, prices[t.token_address])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
     </div>
   );
 };
