@@ -20,12 +20,15 @@ const PeriodRow = ({ label, row, isTotal }) => (
   </tr>
 );
 
-const fmtUsd = (tokens, priceUsd) => {
-  if (!priceUsd || !tokens) return null;
+const fmtWithUsd = (tokens, priceUsd) => {
+  const tokenStr = fmt(tokens);
+  if (!priceUsd || priceUsd === 0) return tokenStr;
   const usd = parseFloat(tokens) * priceUsd;
-  if (usd >= 1000000) return `$${(usd / 1000000).toFixed(2)}M`;
-  if (usd >= 1000) return `$${(usd / 1000).toFixed(2)}K`;
-  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  let usdStr;
+  if (usd >= 1000000) usdStr = `$${(usd / 1000000).toFixed(2)}M`;
+  else if (usd >= 1000) usdStr = `$${(usd / 1000).toFixed(2)}K`;
+  else usdStr = `$${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  return <span>{tokenStr} <span className="text-green-600 text-xs">({usdStr})</span></span>;
 };
 
 const TokenTable = ({ title, rows, detailKey, detailCols, prices }) => (
@@ -57,7 +60,6 @@ const TokenTable = ({ title, rows, detailKey, detailCols, prices }) => (
                 <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Week</th>
                 <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Month</th>
                 <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Year</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-green-600 uppercase">Year (USD)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -71,21 +73,19 @@ const TokenTable = ({ title, rows, detailKey, detailCols, prices }) => (
                   {detailKey === 'collections' && <>
                     <td className="px-4 py-2 text-sm text-gray-600">{d.staked} NFTs × {d.rate}/day</td>
                   </>}
-                  <td className="px-4 py-2 text-sm text-right text-gray-700">{fmt(d.daily)}</td>
-                  <td className="px-4 py-2 text-sm text-right text-gray-700">{fmt(d.daily * 7)}</td>
-                  <td className="px-4 py-2 text-sm text-right text-gray-700">{fmt(d.daily * 30)}</td>
-                  <td className="px-4 py-2 text-sm text-right text-indigo-700">{fmt(d.daily * 365)}</td>
-                  <td className="px-4 py-2 text-sm text-right text-green-700">{fmtUsd(d.daily * 365, prices[token.token_address]) || '—'}</td>
+                  <td className="px-4 py-2 text-sm text-right text-gray-700">{fmtWithUsd(d.daily, prices[token.token_address])}</td>
+                  <td className="px-4 py-2 text-sm text-right text-gray-700">{fmtWithUsd(d.daily * 7, prices[token.token_address])}</td>
+                  <td className="px-4 py-2 text-sm text-right text-gray-700">{fmtWithUsd(d.daily * 30, prices[token.token_address])}</td>
+                  <td className="px-4 py-2 text-sm text-right text-indigo-700">{fmtWithUsd(d.daily * 365, prices[token.token_address])}</td>
                 </tr>
               ))}
               {/* Total row */}
               <tr className="bg-indigo-50 font-semibold">
                 <td className="px-4 py-2 text-sm text-indigo-800" colSpan={detailKey === 'traits' ? 3 : 2}>TOTAL</td>
-                <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmt(token.daily)}</td>
-                <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmt(token.weekly)}</td>
-                <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmt(token.monthly)}</td>
-                <td className="px-4 py-2 text-sm text-right text-indigo-800 font-bold">{fmt(token.yearly)}</td>
-                <td className="px-4 py-2 text-sm text-right text-green-700 font-bold">{fmtUsd(token.yearly, prices[token.token_address]) || '—'}</td>
+                <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmtWithUsd(token.daily, prices[token.token_address])}</td>
+                <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmtWithUsd(token.weekly, prices[token.token_address])}</td>
+                <td className="px-4 py-2 text-sm text-right text-indigo-800">{fmtWithUsd(token.monthly, prices[token.token_address])}</td>
+                <td className="px-4 py-2 text-sm text-right text-indigo-800 font-bold">{fmtWithUsd(token.yearly, prices[token.token_address])}</td>
               </tr>
             </tbody>
           </table>

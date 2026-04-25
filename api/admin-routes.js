@@ -287,16 +287,41 @@ router.get('/rewards-breakdown', verifyJWT, verifyAdmin, async (req, res) => {
   }
 });
 
-// GET /api/v1/admin/token-prices?ids=addr1,addr2 — proxy Jupiter Price API V2
+// GET /api/v1/admin/token-prices?ids=addr1,addr2 — proxy DexScreener for token USD prices
 router.get('/token-prices', verifyJWT, verifyAdmin, async (req, res) => {
   try {
     const { ids } = req.query;
     if (!ids) return res.status(400).json({ success: false, message: 'ids query param required' });
-    const response = await axios.get(`https://api.jup.ag/price/v2?ids=${ids}`, { timeout: 10000 });
+    const mints = ids.split(',').map(s => s.trim()).filter(Boolean);
     const prices = {};
-    Object.entries(response.data?.data || {}).forEach(([mint, info]) => {
-      prices[mint] = parseFloat(info?.price || 0);
-    });
+
+    // DexScreener supports up to 30 tokens per request
+    const BATCH = 30;
+    for (let i = 0; i < mints.length; i += BATCH) {
+      const batch = mints.slice(i, i + BATCH);
+      try {
+        const response = await axios.get(
+          `https://api.dexscreener.com/tokens/v1/solana/${batch.join(',')}`,
+          { timeout: 10000 }
+        );
+        const pairs = response.data || [];
+        // Group by base token address, pick highest-liquidity pair
+        const byMint = {};
+        pairs.forEach(pair => {
+          const mint = pair.baseToken?.address;
+          if (!mint) return;
+          if (!byMint[mint] || (pair.liquidity?.usd || 0) > (byMint[mint].liquidity?.usd || 0)) {
+            byMint[mint] = pair;
+          }
+        });
+        Object.entries(byMint).forEach(([mint, pair]) => {
+          prices[mint] = parseFloat(pair.priceUsd || 0);
+        });
+      } catch (batchErr) {
+        console.warn('[token-prices] batch failed:', batchErr.message);
+      }
+    }
+
     return res.json({ success: true, data: prices });
   } catch (e) {
     console.error('[admin/token-prices]', e.message);
