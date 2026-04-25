@@ -517,7 +517,7 @@ stakingRouter.post('/nfts/stake/quote', verifyJWT, async (req, res) => {
   } catch (e) { console.error('[nfts/stake/quote]', e.message); res.status(500).json({ success: false, message: 'Failed to calculate staking fee' }); }
 });
 
-// POST /api/v1/nfts/refresh-traits — fetch traits from Helius for staked NFTs with empty traits
+// POST /api/v1/nfts/refresh-traits — fetch latest traits from Helius for ALL staked NFTs
 stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
   try {
     const pool = getPool();
@@ -526,9 +526,9 @@ stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
     if (!endpoint || !apiKey) return res.status(500).json({ success: false, message: 'Helius not configured' });
     const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
 
-    // Get staked NFTs with empty/null traits for this wallet
+    // Get ALL staked NFTs for this wallet (not just empty traits)
     const result = await pool.query(
-      `SELECT id, mint_address FROM staked_nfts WHERE owner_wallet = $1 AND (traits IS NULL OR traits::text = '[]' OR traits::text = 'null')`,
+      `SELECT id, mint_address FROM staked_nfts WHERE owner_wallet = $1`,
       [req.user.walletAddress]
     );
     if (result.rows.length === 0) return res.json({ success: true, updated: 0 });

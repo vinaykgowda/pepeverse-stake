@@ -45,6 +45,9 @@ const StakingStats = ({ walletNFTs = [] }) => {
         api.staking.getGlobalStats().then(r => r.data.data).catch(() => []),
         api.staking.getPerNftEarnings().then(r => r.data.data).catch(() => ({})),
       ]);
+
+      // Refresh traits in background so new trait rewards are picked up immediately
+      api.staking.refreshTraits().catch(() => {});
       const rewardsList = rewardsData || [];
       const totalRewards = rewardsList.reduce((t, r) => t + (r.amount || 0), 0);
       setStats({ totalStaked: stakedNFTs?.length || 0, stakedByCollection: statsData || [], totalRewards });
