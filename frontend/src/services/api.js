@@ -142,6 +142,7 @@ const adminApi = {
   getDashboardStats: () => api.get('/admin/dashboard'),
 
   // Rewards
+  getRewardsBreakdown: () => api.get('/admin/rewards-breakdown'),
   getRewards: () => api.get('/admin/rewards'),
   addReward: (reward) => api.post('/admin/rewards', reward),
   updateReward: (id, reward) => api.put(`/admin/rewards/${id}`, reward),

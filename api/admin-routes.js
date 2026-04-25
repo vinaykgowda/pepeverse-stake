@@ -216,6 +216,77 @@ router.get('/dashboard', verifyJWT, verifyAdmin, async (req, res) => {
   }
 });
 
+// GET /api/v1/admin/rewards-breakdown — base + trait earnings breakdown per token
+router.get('/rewards-breakdown', verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const pool = getPool();
+
+    // Base rewards: per collection, per token
+    const baseResult = await pool.query(`
+      SELECT
+        c.id AS collection_id, c.name AS collection_name,
+        cr.token_address, cr.token_symbol, cr.token_decimals,
+        cr.daily_rate,
+        COUNT(sn.id) AS staked_count,
+        COUNT(sn.id) * cr.daily_rate AS daily_total
+      FROM collection_rewards cr
+      JOIN collections c ON c.id = cr.collection_id
+      LEFT JOIN staked_nfts sn ON sn.collection_id = c.id
+      WHERE cr.is_active = TRUE
+      GROUP BY c.id, c.name, cr.token_address, cr.token_symbol, cr.token_decimals, cr.daily_rate
+      ORDER BY c.name, cr.token_symbol
+    `);
+
+    // Trait rewards: per trait rule, count matching staked NFTs
+    const traitResult = await pool.query(`
+      SELECT
+        tr.id, c.name AS collection_name,
+        tr.trait_type, tr.trait_value,
+        tr.token_address, tr.token_symbol, tr.token_decimals, tr.multiplier,
+        COUNT(sn.id) AS matching_staked,
+        COUNT(sn.id) * tr.multiplier AS daily_total
+      FROM trait_rewards tr
+      JOIN collections c ON c.id = tr.collection_id
+      LEFT JOIN staked_nfts sn ON sn.collection_id = tr.collection_id
+        AND sn.traits::jsonb @> json_build_array(json_build_object('trait_type', tr.trait_type, 'value', tr.trait_value))::jsonb
+      WHERE tr.is_active = TRUE
+      GROUP BY tr.id, c.name, tr.trait_type, tr.trait_value, tr.token_address, tr.token_symbol, tr.token_decimals, tr.multiplier
+      ORDER BY c.name, tr.token_symbol
+    `);
+
+    // Aggregate totals per token across all base rewards
+    const baseTotals = {};
+    baseResult.rows.forEach(r => {
+      const key = r.token_symbol;
+      if (!baseTotals[key]) baseTotals[key] = { token_symbol: r.token_symbol, token_address: r.token_address, daily: 0, collections: [] };
+      baseTotals[key].daily += parseFloat(r.daily_total || 0);
+      baseTotals[key].collections.push({ collection: r.collection_name, staked: parseInt(r.staked_count), rate: parseFloat(r.daily_rate), daily: parseFloat(r.daily_total || 0) });
+    });
+
+    // Aggregate totals per token across all trait rewards
+    const traitTotals = {};
+    traitResult.rows.forEach(r => {
+      const key = r.token_symbol;
+      if (!traitTotals[key]) traitTotals[key] = { token_symbol: r.token_symbol, token_address: r.token_address, daily: 0, traits: [] };
+      traitTotals[key].daily += parseFloat(r.daily_total || 0);
+      traitTotals[key].traits.push({ collection: r.collection_name, trait_type: r.trait_type, trait_value: r.trait_value, matching: parseInt(r.matching_staked), rate: parseFloat(r.multiplier), daily: parseFloat(r.daily_total || 0) });
+    });
+
+    const addPeriods = obj => ({ ...obj, weekly: obj.daily * 7, monthly: obj.daily * 30, yearly: obj.daily * 365 });
+
+    return res.json({
+      success: true,
+      data: {
+        base: Object.values(baseTotals).map(addPeriods),
+        trait: Object.values(traitTotals).map(addPeriods),
+      }
+    });
+  } catch (error) {
+    console.error('Error in GET /admin/rewards-breakdown:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch rewards breakdown' });
+  }
+});
+
 // GET /api/v1/admin/token-balances
 router.get('/token-balances', verifyJWT, verifyAdmin, async (req, res) => {
   try {

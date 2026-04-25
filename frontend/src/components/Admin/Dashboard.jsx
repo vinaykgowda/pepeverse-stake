@@ -90,11 +90,6 @@ const Dashboard = () => {
               <div className="text-xs text-gray-400 mt-1">{fmt(data.total_staking_wallets)} unique wallets</div>
             </div>
             <div className="bg-white rounded-lg shadow p-5">
-              <div className="text-sm text-gray-500 mb-1">Rewards Distributed</div>
-              <div className="text-3xl font-bold text-gray-900">{fmt(data.total_rewards_distributed)}</div>
-              <div className="text-xs text-gray-400 mt-1">tokens claimed total</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-5">
               <div className="text-sm text-gray-500 mb-1">Active Airdrops</div>
               <div className="text-3xl font-bold text-gray-900">{data.active_airdrops?.length ?? 0}</div>
               <Link to="/admin/airdrops" className="text-xs text-indigo-600 hover:underline mt-1 block">View airdrops →</Link>
@@ -130,40 +125,6 @@ const Dashboard = () => {
                       <td className="px-6 py-3 text-sm text-right text-gray-700">{fmt(c.unique_stakers)}</td>
                       <td className="px-6 py-3 text-sm text-right text-gray-500">{c.stake_fee} SOL</td>
                       <td className="px-6 py-3 text-sm text-right text-gray-500">{c.claim_fee} SOL</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* Daily rewards needed */}
-          <div className="bg-white rounded-lg shadow mb-6">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="text-base font-semibold text-gray-800">Daily Rewards Needed</h3>
-              <Link to="/admin/rewards" className="text-sm text-indigo-600 hover:underline">Manage rewards</Link>
-            </div>
-            {!data.daily_rewards?.length ? (
-              <div className="px-6 py-8 text-center text-gray-400">
-                No active rewards configured. <Link to="/admin/rewards" className="text-indigo-600 hover:underline">Add rewards →</Link>
-              </div>
-            ) : (
-              <table className="min-w-full divide-y divide-gray-100">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Token</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Staked NFTs</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tokens / Day</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tokens / Week</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {data.daily_rewards.map(r => (
-                    <tr key={r.token_address}>
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{r.token_symbol}</td>
-                      <td className="px-6 py-3 text-sm text-right text-gray-700">{fmt(r.staked_count)}</td>
-                      <td className="px-6 py-3 text-sm text-right font-semibold text-indigo-700">{fmt(r.daily_total)}</td>
-                      <td className="px-6 py-3 text-sm text-right text-gray-500">{fmt(r.daily_total * 7)}</td>
                     </tr>
                   ))}
                 </tbody>

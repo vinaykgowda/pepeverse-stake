@@ -38,6 +38,7 @@ const Sidebar = () => {
         {link('/admin/airdrops', 'Airdrops')}
         {link('/admin/analytics/claims', 'Claims Analytics')}
         {link('/admin/analytics/airdrop-claims', 'Airdrop Analytics')}
+        {link('/admin/rewards-breakdown', 'Rewards Breakdown')}
         {isSuperAdmin && link('/admin/admins', 'Admin Managers')}
         {isSuperAdmin && link('/admin/wallet', 'Wallet Setup')}
         {link('/admin/settings', 'Settings')}

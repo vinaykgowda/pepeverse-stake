@@ -21,7 +21,7 @@ import AdminSettings from './pages/Admin/Settings';
 import AdminProfile from './pages/Admin/Profile';
 import AdminLogin from './pages/Admin/Login';
 import AdminAirdrops from './pages/Admin/Airdrops';
-import AdminClaimsAnalytics from './pages/Admin/ClaimsAnalytics';
+import AdminRewardsBreakdown from './pages/Admin/RewardsBreakdown';
 import AdminAirdropAnalytics from './pages/Admin/AirdropAnalytics';
 
 import PrivateRoute from './components/Auth/PrivateRoute';
@@ -72,6 +72,7 @@ function App() {
                   <Route path="/admin/airdrops" element={<AdminRoute><AdminAirdrops /></AdminRoute>} />
                   <Route path="/admin/analytics/claims" element={<AdminRoute><AdminClaimsAnalytics /></AdminRoute>} />
                   <Route path="/admin/analytics/airdrop-claims" element={<AdminRoute><AdminAirdropAnalytics /></AdminRoute>} />
+                  <Route path="/admin/rewards-breakdown" element={<AdminRoute><AdminRewardsBreakdown /></AdminRoute>} />
                 </Routes>
               </LayoutWrapper>
             </Router>
