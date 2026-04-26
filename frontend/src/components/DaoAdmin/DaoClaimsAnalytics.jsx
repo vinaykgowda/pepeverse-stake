@@ -1,7 +1,8 @@
 // frontend/src/components/DaoAdmin/DaoClaimsAnalytics.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const _base = import.meta.env.VITE_API_URL || '';
+const API_BASE = _base.endsWith('/api/v1') ? _base.slice(0, -7) : _base;
 
 const DaoClaimsAnalytics = () => {
   const [claims, setClaims] = useState([]);
