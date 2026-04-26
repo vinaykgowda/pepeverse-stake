@@ -2,7 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import DaoAdminLayout from '../../components/Layout/DaoAdminLayout';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+// Strip trailing /api/v1 from VITE_API_URL if present — paths below include /api/v1 already
+const _base = import.meta.env.VITE_API_URL || '';
+const API_BASE = _base.endsWith('/api/v1') ? _base.slice(0, -7) : _base;
 
 const StatCard = ({ label, value, icon, loading }) => (
   <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-indigo-500 flex items-center gap-4">
