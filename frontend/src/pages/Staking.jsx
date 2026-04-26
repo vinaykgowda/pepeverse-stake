@@ -142,7 +142,7 @@ const Staking = () => {
               >
                 Staked ({stakedNFTs.length})
               </button>
-              {hasDaoNFTs ? (
+              {hasDaoNFTs && (
                 <button
                   onClick={() => handleTabChange('dao')}
                   className={`py-2 px-5 text-sm font-semibold rounded-lg transition-all ${
@@ -153,18 +153,6 @@ const Staking = () => {
                 >
                   DAO ({daoEligibleNFTs.length})
                 </button>
-              ) : (
-                <div className="relative group">
-                  <button
-                    disabled
-                    className="py-2 px-5 text-sm font-semibold rounded-lg text-blue-900 cursor-not-allowed opacity-50"
-                  >
-                    DAO
-                  </button>
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-[#0d1a2d] border border-blue-900 text-blue-400 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-10">
-                    No DAO-eligible NFTs staked
-                  </div>
-                </div>
               )}
             </div>
 
