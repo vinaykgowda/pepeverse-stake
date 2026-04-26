@@ -801,6 +801,20 @@ stakingRouter.put('/collections/:id', verifyJWT, (req, res, next) => {
 
 app.use('/api/v1', stakingRouter);
 
+// ── DAO Admin routes ─────────────────────────────────────────────────────────
+try {
+  const daoAdminRoutes = require('./dao-admin-routes');
+  app.use('/api/v1/dao-admin', daoAdminRoutes);
+  console.log('[ROUTES] dao-admin-routes loaded');
+} catch (e) { console.error('[ROUTES] Failed to load dao-admin routes:', e.message); }
+
+// ── DAO User routes ──────────────────────────────────────────────────────────
+try {
+  const daoUserRoutes = require('./dao-user-routes');
+  app.use('/api/v1/user', daoUserRoutes);
+  console.log('[ROUTES] dao-user-routes loaded');
+} catch (e) { console.error('[ROUTES] Failed to load dao-user routes:', e.message); }
+
 // ── 404 & error handler ──────────────────────────────────────────────────────
 app.use((req, res) => {
   console.log('[404]', req.method, req.path);
