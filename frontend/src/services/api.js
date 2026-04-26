@@ -201,6 +201,45 @@ const solanaApi = {
   sendTransaction: (transactionBase64) => api.post('/solana/send-transaction', { transaction: transactionBase64 }),
 };
 
+// DAO Admin auth header helper
+const daoHeaders = () => ({
+  headers: { Authorization: `Bearer ${localStorage.getItem('daoAdminToken')}` }
+});
+
+// DAO Admin API
+const daoAdminApi = {
+  login: (username, password) => axios.post('/api/v1/dao-admin/login', { username, password }),
+  getTraitRewards: () => axios.get('/api/v1/dao-admin/trait-rewards', daoHeaders()),
+  addTraitReward: (data) => axios.post('/api/v1/dao-admin/trait-rewards', data, daoHeaders()),
+  updateTraitReward: (id, data) => axios.put(`/api/v1/dao-admin/trait-rewards/${id}`, data, daoHeaders()),
+  deleteTraitReward: (id) => axios.delete(`/api/v1/dao-admin/trait-rewards/${id}`, daoHeaders()),
+  getAirdrops: () => axios.get('/api/v1/dao-admin/airdrops', daoHeaders()),
+  createAirdrop: (data) => axios.post('/api/v1/dao-admin/airdrops', data, daoHeaders()),
+  activateAirdrop: (id) => axios.post(`/api/v1/dao-admin/airdrops/${id}/activate`, {}, daoHeaders()),
+  getSettings: () => axios.get('/api/v1/dao-admin/settings', daoHeaders()),
+  updateSettings: (data) => axios.put('/api/v1/dao-admin/settings', data, daoHeaders()),
+  getWallet: () => axios.get('/api/v1/dao-admin/wallet', daoHeaders()),
+  setWallet: (data) => axios.post('/api/v1/dao-admin/wallet', data, daoHeaders()),
+  getAdmins: () => axios.get('/api/v1/dao-admin/admins', daoHeaders()),
+  addAdmin: (data) => axios.post('/api/v1/dao-admin/admins', data, daoHeaders()),
+  getAvailableTokens: () => axios.get('/api/v1/dao-admin/available-tokens', daoHeaders()),
+  getAnalyticsClaims: () => axios.get('/api/v1/dao-admin/analytics/claims', daoHeaders()),
+  getAnalyticsAirdropClaims: () => axios.get('/api/v1/dao-admin/analytics/airdrop-claims', daoHeaders()),
+  getRewardsBreakdown: () => axios.get('/api/v1/dao-admin/rewards-breakdown', daoHeaders()),
+  getDashboard: () => axios.get('/api/v1/dao-admin/analytics/dashboard', daoHeaders()),
+};
+
+// DAO User API
+const daoUserApi = {
+  getRewards: (walletAddress) => axios.get(`/api/v1/user/dao-rewards?wallet_address=${walletAddress}`),
+  getClaimQuote: (walletAddress) => axios.get(`/api/v1/user/dao-claim-quote?wallet_address=${walletAddress}`),
+  claimRewards: (data) => axios.post('/api/v1/user/dao-claim', data),
+  getEligibleNFTs: (walletAddress) => axios.get(`/api/v1/user/dao-eligible-nfts?wallet_address=${walletAddress}`),
+  getAirdrops: (walletAddress) => axios.get(`/api/v1/user/dao-airdrops?wallet_address=${walletAddress}`),
+  getAirdropQuote: (data) => axios.post('/api/v1/user/dao-airdrop-quote', data),
+  claimAirdrop: (data) => axios.post('/api/v1/user/dao-airdrop-claim', data),
+};
+
 // User-facing airdrop API calls (uses wallet JWT via x-auth-token header)
 const userApi = {
   getAirdrops: (walletAddress) => api.get(`/user/airdrops/${walletAddress}`),
@@ -214,5 +253,7 @@ export default {
   staking: stakingApi,
   admin: adminApi,
   user: userApi,
-  solana: solanaApi
+  solana: solanaApi,
+  daoAdmin: daoAdminApi,
+  daoUser: daoUserApi,
 };

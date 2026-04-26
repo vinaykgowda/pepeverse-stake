@@ -6,3 +6,14 @@
   0% { background-position: 0% 50%; }
   100% { background-position: 300% 50%; }
 }
+
+@keyframes dao-breathe {
+  0%, 100% { box-shadow: 0 0 15px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 35px rgba(59, 130, 246, 0.7); }
+}
+
+.dao-breathe {
+  animation: dao-breathe 2s ease-in-out infinite;
+  background: linear-gradient(135deg, #1e3a5f, #1e40af, #3b82f6);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+}

@@ -4,6 +4,7 @@ import { useWallet } from '../../context/WalletContext';
 import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { formatToken, formatSol } from '../../utils/format';
 import api from '../../services/api';
+import DaoStats from './DaoStats';
 
 const StakingStats = ({ walletNFTs = [] }) => {
   const { loading, getStakingStats, getStakedNFTs, calculateRewards, claimRewards, getClaimQuote, wallet, connected } = useWallet();
@@ -263,8 +264,8 @@ const StakingStats = ({ walletNFTs = [] }) => {
         </div>
       ) : (
         <>
-          {/* 50/50 layout: left = collection staking table, right = Total Rewards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          {/* Layout: 2-col normally, 3-col when wallet connected (DaoStats handles its own empty state) */}
+          <div className={`grid grid-cols-1 gap-6 mb-6 ${connected ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
 
             {/* Left: User staking + Collection stats */}
             <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 space-y-4">
@@ -350,6 +351,11 @@ const StakingStats = ({ walletNFTs = [] }) => {
                 {claimProcessing ? 'Processing...' : 'Claim Rewards'}
               </button>
             </div>
+
+            {/* Right: DAO Earning + Claim DAO (only when wallet connected) */}
+            {connected && (
+              <DaoStats walletAddress={wallet?.adapter?.publicKey?.toString()} />
+            )}
           </div>
 
           {/* Airdrops section */}

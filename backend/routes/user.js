@@ -273,4 +273,349 @@ router.post('/airdrops/claim', verifyJWT, async (req, res) => {
   }
 });
 
+// ============================================================
+// DAO User Routes
+// Requirements: 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3
+// ============================================================
+
+const {
+  calculateDaoRewards,
+  getDaoEligibleNFTs,
+  claimDaoRewards
+} = require('../src/dao-rewards-handler');
+
+// GET /api/v1/user/dao-rewards?wallet_address=...
+// Requirements: 4.1 — DAO reward calculation independent of regular rewards
+router.get('/dao-rewards', async (req, res) => {
+  try {
+    const { wallet_address } = req.query;
+    if (!wallet_address) {
+      return res.status(400).json({ success: false, message: 'wallet_address is required' });
+    }
+    const result = await calculateDaoRewards(wallet_address);
+    if (!result.success) {
+      return res.status(500).json(result);
+    }
+    return res.json(result);
+  } catch (error) {
+    console.error('Error in GET /user/dao-rewards:', error);
+    return res.status(500).json({ success: false, message: 'Failed to calculate DAO rewards' });
+  }
+});
+
+// GET /api/v1/user/dao-claim-quote?wallet_address=...
+// Requirements: 4.2 — returns claimFee, feeRecipient, requiresPayment, rewards
+router.get('/dao-claim-quote', async (req, res) => {
+  try {
+    const { wallet_address } = req.query;
+    if (!wallet_address) {
+      return res.status(400).json({ success: false, message: 'wallet_address is required' });
+    }
+
+    const settingsResult = await pool.query(
+      `SELECT key_name, value FROM settings WHERE key_name IN ($1, $2)`,
+      ['dao_claim_fee', 'dao_rewards_wallet']
+    );
+    const settings = {};
+    settingsResult.rows.forEach(r => { settings[r.key_name] = r.value; });
+
+    const claimFee = parseFloat(settings['dao_claim_fee'] || '0');
+    const feeRecipient = settings['dao_rewards_wallet'] || null;
+
+    const rewardsResult = await calculateDaoRewards(wallet_address);
+    if (!rewardsResult.success) {
+      return res.status(500).json(rewardsResult);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        claimFee,
+        feeRecipient,
+        requiresPayment: claimFee > 0,
+        rewards: rewardsResult.data
+      }
+    });
+  } catch (error) {
+    console.error('Error in GET /user/dao-claim-quote:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get DAO claim quote' });
+  }
+});
+
+// POST /api/v1/user/dao-claim
+// Requirements: 4.3 — verify fee, SPL transfer from dao_rewards_wallet, update dao_last_claim_timestamp
+router.post('/dao-claim', async (req, res) => {
+  try {
+    const { wallet_address, payment_signature } = req.body;
+    if (!wallet_address) {
+      return res.status(400).json({ success: false, message: 'wallet_address is required' });
+    }
+    const result = await claimDaoRewards(wallet_address, payment_signature || null);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (error) {
+    console.error('Error in POST /user/dao-claim:', error);
+    return res.status(500).json({ success: false, message: 'Failed to claim DAO rewards' });
+  }
+});
+
+// GET /api/v1/user/dao-eligible-nfts?wallet_address=...
+// Requirements: 4.4 — staked NFTs with at least one matching DAO trait reward
+router.get('/dao-eligible-nfts', async (req, res) => {
+  try {
+    const { wallet_address } = req.query;
+    if (!wallet_address) {
+      return res.status(400).json({ success: false, message: 'wallet_address is required' });
+    }
+    const result = await getDaoEligibleNFTs(wallet_address);
+    if (!result.success) {
+      return res.status(500).json(result);
+    }
+    return res.json(result);
+  } catch (error) {
+    console.error('Error in GET /user/dao-eligible-nfts:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get DAO eligible NFTs' });
+  }
+});
+
+// GET /api/v1/user/dao-airdrops?wallet_address=...
+// Requirements: 5.1 — active DAO airdrop snapshots for wallet, unclaimed and not expired
+router.get('/dao-airdrops', async (req, res) => {
+  try {
+    const { wallet_address } = req.query;
+    if (!wallet_address) {
+      return res.status(400).json({ success: false, message: 'wallet_address is required' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         snap.id,
+         snap.dao_airdrop_config_id,
+         snap.token_amount,
+         dac.token_symbol,
+         dac.token_address,
+         dac.token_decimals,
+         dac.expires_at,
+         EXTRACT(EPOCH FROM (dac.expires_at - NOW()))::INTEGER AS time_remaining_seconds
+       FROM dao_airdrop_snapshots snap
+       JOIN dao_airdrop_configs dac ON snap.dao_airdrop_config_id = dac.id
+       WHERE snap.wallet_address = $1
+         AND snap.is_claimed = false
+         AND dac.status = 'active'
+         AND dac.expires_at > NOW()`,
+      [wallet_address]
+    );
+
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error in GET /user/dao-airdrops:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch DAO airdrops' });
+  }
+});
+
+// POST /api/v1/user/dao-airdrop-quote
+// Requirements: 5.2 — returns { token_amount, claim_fee, fee_recipient }
+router.post('/dao-airdrop-quote', async (req, res) => {
+  try {
+    const { wallet_address, dao_airdrop_snapshot_id } = req.body;
+    if (!wallet_address || !dao_airdrop_snapshot_id) {
+      return res.status(400).json({ success: false, message: 'wallet_address and dao_airdrop_snapshot_id are required' });
+    }
+
+    const snapshotResult = await pool.query(
+      `SELECT snap.token_amount, dac.expires_at
+       FROM dao_airdrop_snapshots snap
+       JOIN dao_airdrop_configs dac ON snap.dao_airdrop_config_id = dac.id
+       WHERE snap.id = $1
+         AND snap.wallet_address = $2
+         AND snap.is_claimed = false
+         AND dac.status = 'active'
+         AND dac.expires_at > NOW()`,
+      [dao_airdrop_snapshot_id, wallet_address]
+    );
+
+    if (snapshotResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'No eligible unclaimed DAO airdrop found' });
+    }
+
+    const { token_amount } = snapshotResult.rows[0];
+
+    const settingsResult = await pool.query(
+      `SELECT key_name, value FROM settings WHERE key_name IN ($1, $2)`,
+      ['dao_claim_fee', 'dao_rewards_wallet']
+    );
+    const settings = {};
+    settingsResult.rows.forEach(r => { settings[r.key_name] = r.value; });
+
+    const claim_fee = parseFloat(settings['dao_claim_fee'] || '0');
+    const fee_recipient = settings['dao_rewards_wallet'] || null;
+
+    return res.json({
+      success: true,
+      data: { token_amount, claim_fee, fee_recipient }
+    });
+  } catch (error) {
+    console.error('Error in POST /user/dao-airdrop-quote:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get DAO airdrop quote' });
+  }
+});
+
+// POST /api/v1/user/dao-airdrop-claim
+// Requirements: 5.3 — verify payment, SPL transfer from dao_rewards_wallet, mark claimed, record DAO_AIRDROP_CLAIM
+router.post('/dao-airdrop-claim', async (req, res) => {
+  const { wallet_address, dao_airdrop_snapshot_id, payment_signature } = req.body;
+
+  if (!wallet_address || !dao_airdrop_snapshot_id) {
+    return res.status(400).json({ success: false, message: 'wallet_address and dao_airdrop_snapshot_id are required' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Lock snapshot row to prevent double-claim
+    const snapshotResult = await client.query(
+      `SELECT snap.id, snap.is_claimed, snap.token_amount,
+              dac.token_symbol, dac.token_address, dac.token_decimals, dac.expires_at,
+              dac.collection_id
+       FROM dao_airdrop_snapshots snap
+       JOIN dao_airdrop_configs dac ON snap.dao_airdrop_config_id = dac.id
+       WHERE snap.id = $1
+         AND snap.wallet_address = $2
+       FOR UPDATE`,
+      [dao_airdrop_snapshot_id, wallet_address]
+    );
+
+    if (snapshotResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Not eligible for this DAO airdrop' });
+    }
+
+    const snap = snapshotResult.rows[0];
+
+    if (snap.is_claimed) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, message: 'DAO airdrop already claimed' });
+    }
+
+    if (new Date(snap.expires_at) <= new Date()) {
+      await client.query('ROLLBACK');
+      return res.status(410).json({ success: false, message: 'DAO airdrop claim window has expired' });
+    }
+
+    // Fetch DAO wallet settings
+    const settingsResult = await client.query(
+      `SELECT key_name, value FROM settings WHERE key_name IN ($1, $2, $3)`,
+      ['dao_claim_fee', 'dao_rewards_wallet', 'dao_rewards_wallet_encrypted_key']
+    );
+    const settings = {};
+    settingsResult.rows.forEach(r => { settings[r.key_name] = r.value; });
+
+    const dao_rewards_wallet = settings['dao_rewards_wallet'];
+    const dao_encrypted_key = settings['dao_rewards_wallet_encrypted_key'];
+    const claim_fee = parseFloat(settings['dao_claim_fee'] || '0');
+
+    if (!dao_rewards_wallet || !dao_encrypted_key) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ success: false, message: 'DAO rewards wallet not configured' });
+    }
+
+    // Verify payment if fee > 0
+    if (claim_fee > 0) {
+      if (!payment_signature) {
+        await client.query('ROLLBACK');
+        return res.status(402).json({
+          success: false,
+          message: `DAO airdrop claim fee required: ${claim_fee} SOL`,
+          requires_payment: true,
+          claim_fee,
+          fee_recipient: dao_rewards_wallet
+        });
+      }
+
+      const paymentResult = await transactionVerification.verifyPaymentWithConfirmation(
+        payment_signature,
+        wallet_address,
+        dao_rewards_wallet,
+        claim_fee
+      );
+
+      if (!paymentResult.success) {
+        await client.query('ROLLBACK');
+        return res.status(402).json({ success: false, message: 'DAO airdrop payment verification failed' });
+      }
+    }
+
+    // Execute SPL transfer from dao_rewards_wallet
+    let signature;
+    try {
+      const connection = getConnection();
+      const daoKeypair = getKeypairFromPrivateKey(dao_encrypted_key);
+      const userPubkey = new PublicKey(wallet_address);
+      const tokenMint = new PublicKey(snap.token_address);
+
+      const sourceTokenAccount = await getOrCreateTokenAccount(
+        connection,
+        tokenMint,
+        daoKeypair.publicKey,
+        daoKeypair
+      );
+
+      const destinationTokenAccount = await getOrCreateTokenAccount(
+        connection,
+        tokenMint,
+        userPubkey,
+        daoKeypair
+      );
+
+      const tokenAmount = parseFloat(snap.token_amount);
+      const rawAmount = Math.floor(tokenAmount * Math.pow(10, snap.token_decimals));
+      const transferInstruction = await createTokenTransferInstruction(
+        sourceTokenAccount,
+        destinationTokenAccount,
+        daoKeypair.publicKey,
+        rawAmount
+      );
+
+      signature = await sendTransaction([transferInstruction], daoKeypair);
+      console.log(`✅ [DAO-AIRDROP-CLAIM] SPL transfer completed: ${signature}`);
+    } catch (transferErr) {
+      console.error('❌ [DAO-AIRDROP-CLAIM] SPL transfer failed:', transferErr);
+      await client.query('ROLLBACK');
+      return res.status(500).json({ success: false, message: 'DAO airdrop token transfer failed. Please try again.' });
+    }
+
+    // Record DAO_AIRDROP_CLAIM transaction
+    await client.query(
+      `INSERT INTO transactions (wallet_address, collection_id, transaction_type, amount, token_symbol, token_address, status, transaction_hash)
+       VALUES ($1, $2, 'DAO_AIRDROP_CLAIM', $3, $4, $5, 'CONFIRMED', $6)`,
+      [wallet_address, snap.collection_id, parseFloat(snap.token_amount), snap.token_symbol, snap.token_address, signature]
+    );
+
+    // Mark snapshot as claimed
+    await client.query(
+      `UPDATE dao_airdrop_snapshots SET is_claimed = true, claimed_at = NOW(), claim_tx_hash = $1 WHERE id = $2`,
+      [signature, snap.id]
+    );
+
+    await client.query('COMMIT');
+
+    return res.json({ success: true, data: { signature } });
+
+  } catch (error) {
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    console.error('Error in POST /user/dao-airdrop-claim:', error);
+    return res.status(500).json({ success: false, message: 'Failed to process DAO airdrop claim' });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
+});
+
 module.exports = router;

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '../context/WalletContext';
 import NFTDisplay from '../components/User/NFTDisplay';
+import DaoNFTDisplay from '../components/User/DaoNFTDisplay';
 import StakingStats from '../components/User/StakingStats';
 import WalletConnect from '../components/User/WalletConnect';
 import StakeModal from '../components/User/StakeModal';
@@ -10,7 +11,7 @@ import UnstakeModal from '../components/User/UnstakeModal';
 import api from '../services/api';
 
 const Staking = () => {
-  const { connected, collections, loadUserNFTs, getStakedNFTs } = useWallet();
+  const { connected, wallet, collections, loadUserNFTs, getStakedNFTs } = useWallet();
 
   const [selectedNFTs, setSelectedNFTs] = useState([]);
   const [walletNFTs, setWalletNFTs] = useState([]);
@@ -21,6 +22,9 @@ const Staking = () => {
   const [loadingNFTs, setLoadingNFTs] = useState(false);
   const [showStakeModal, setShowStakeModal] = useState(false);
   const [showUnstakeModal, setShowUnstakeModal] = useState(false);
+
+  const [daoEligibleNFTs, setDaoEligibleNFTs] = useState([]);
+  const [loadingDaoNFTs, setLoadingDaoNFTs] = useState(false);
 
   const loadNFTs = useCallback(async () => {
     try {
@@ -40,9 +44,28 @@ const Staking = () => {
     }
   }, [loadUserNFTs, getStakedNFTs]);
 
+  const loadDaoEligibleNFTs = useCallback(async () => {
+    const walletAddress = wallet?.publicKey;
+    if (!walletAddress) return;
+    try {
+      setLoadingDaoNFTs(true);
+      const res = await api.daoUser.getEligibleNFTs(walletAddress);
+      setDaoEligibleNFTs(res.data?.data || []);
+    } catch (error) {
+      console.error('Error loading DAO-eligible NFTs:', error);
+      setDaoEligibleNFTs([]);
+    } finally {
+      setLoadingDaoNFTs(false);
+    }
+  }, [wallet?.publicKey]);
+
   useEffect(() => {
     if (connected && collections.length > 0) loadNFTs();
   }, [connected, collections.length, loadNFTs]);
+
+  useEffect(() => {
+    if (connected && wallet?.publicKey) loadDaoEligibleNFTs();
+  }, [connected, wallet?.publicKey, loadDaoEligibleNFTs]);
 
   const stakedMintAddresses = React.useMemo(
     () => new Set(stakedNFTs.map(nft => nft.mintAddress || nft.mint_address)),
@@ -61,10 +84,11 @@ const Staking = () => {
 
   const handleSuccess = useCallback(() => {
     loadNFTs();
+    loadDaoEligibleNFTs();
     setSelectedNFTs([]);
     setShowStakeModal(false);
     setShowUnstakeModal(false);
-  }, [loadNFTs]);
+  }, [loadNFTs, loadDaoEligibleNFTs]);
 
   if (!connected) {
     return (
@@ -80,6 +104,7 @@ const Staking = () => {
     );
   }
 
+  const hasDaoNFTs = daoEligibleNFTs.length > 0;
   const currentNFTs = activeTab === 'wallet' ? unstakedNFTs : stakedNFTs;
 
   return (
@@ -117,21 +142,47 @@ const Staking = () => {
               >
                 Staked ({stakedNFTs.length})
               </button>
+              {hasDaoNFTs ? (
+                <button
+                  onClick={() => handleTabChange('dao')}
+                  className={`py-2 px-5 text-sm font-semibold rounded-lg transition-all ${
+                    activeTab === 'dao'
+                      ? 'bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.4)]'
+                      : 'text-blue-600 hover:text-blue-400'
+                  }`}
+                >
+                  DAO ({daoEligibleNFTs.length})
+                </button>
+              ) : (
+                <div className="relative group">
+                  <button
+                    disabled
+                    className="py-2 px-5 text-sm font-semibold rounded-lg text-blue-900 cursor-not-allowed opacity-50"
+                  >
+                    DAO
+                  </button>
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-[#0d1a2d] border border-blue-900 text-blue-400 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-10">
+                    No DAO-eligible NFTs staked
+                  </div>
+                </div>
+              )}
             </div>
 
-            <select
-              value={collectionFilter}
-              onChange={(e) => setCollectionFilter(e.target.value)}
-              className="px-3 py-2 bg-[#0d1a0d] border border-[#1e3a1e] text-green-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-700 text-sm"
-            >
-              <option value="">All Collections</option>
-              {collections.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            {activeTab !== 'dao' && (
+              <select
+                value={collectionFilter}
+                onChange={(e) => setCollectionFilter(e.target.value)}
+                className="px-3 py-2 bg-[#0d1a0d] border border-[#1e3a1e] text-green-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-700 text-sm"
+              >
+                <option value="">All Collections</option>
+                {collections.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
 
             {/* Stake / Unstake action button */}
-            {selectedNFTs.length > 0 && (
+            {selectedNFTs.length > 0 && activeTab !== 'dao' && (
               <div className="sm:ml-auto">
                 {activeTab === 'wallet' ? (
                   <button
@@ -153,18 +204,25 @@ const Staking = () => {
           </div>
 
           {/* NFT Grid */}
-          <NFTDisplay
-            nfts={currentNFTs}
-            stakedNFTs={stakedNFTs}
-            selectedNFTs={selectedNFTs}
-            setSelectedNFTs={setSelectedNFTs}
-            collectionFilter={collectionFilter}
-            isStakedView={activeTab === 'staked'}
-            loading={loadingNFTs}
-            collections={collections}
-            walletNFTs={walletNFTs}
-            nftEarnings={nftEarnings}
-          />
+          {activeTab === 'dao' ? (
+            <DaoNFTDisplay
+              eligibleNFTs={daoEligibleNFTs}
+              loading={loadingDaoNFTs}
+            />
+          ) : (
+            <NFTDisplay
+              nfts={currentNFTs}
+              stakedNFTs={stakedNFTs}
+              selectedNFTs={selectedNFTs}
+              setSelectedNFTs={setSelectedNFTs}
+              collectionFilter={collectionFilter}
+              isStakedView={activeTab === 'staked'}
+              loading={loadingNFTs}
+              collections={collections}
+              walletNFTs={walletNFTs}
+              nftEarnings={nftEarnings}
+            />
+          )}
         </div>
       </main>
 

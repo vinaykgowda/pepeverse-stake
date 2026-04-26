@@ -12,6 +12,7 @@ const authRoutes = require('./routes/auth');
 const heliusRoutes = require('./routes/helius');
 const healthRoutes = require('./routes/health');
 const adminRoutes = require('./routes/admin');
+const daoAdminRoutes = require('./routes/dao-admin');
 const userRoutes = require('./routes/user');
 const networkConfig = require('./src/config/network');
 const { validateOrExit, getConfigSummary } = require('./src/config/startup-validation');
@@ -126,6 +127,7 @@ if (!apiBaseUrl) {
 app.use(`${apiBaseUrl}/auth`, authRoutes);
 app.use(`${apiBaseUrl}/helius`, heliusRoutes);
 app.use(`${apiBaseUrl}/admin`, adminRoutes);
+app.use(`${apiBaseUrl}/dao-admin`, daoAdminRoutes);
 app.use(`${apiBaseUrl}/user`, userRoutes);
 app.use(apiBaseUrl, apiRoutes);
 
