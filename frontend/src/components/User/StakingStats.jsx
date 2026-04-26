@@ -15,6 +15,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
   const [dailyRates, setDailyRates] = useState({}); // { token_address: daily_rate }
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsLoaded, setStatsLoaded] = useState(false);
+  const [hasDaoEarnings, setHasDaoEarnings] = useState(false);
 
   // Claim state
   const [claimQuote, setClaimQuote] = useState(null);
@@ -80,18 +81,31 @@ const StakingStats = ({ walletNFTs = [] }) => {
     } catch (e) { /* non-critical */ }
   }, [wallet]);
 
+  const checkDaoEarnings = useCallback(async () => {
+    if (!wallet?.adapter?.publicKey) return;
+    try {
+      const res = await api.daoUser.getRewards(wallet.adapter.publicKey.toString());
+      const daoRewards = res.data?.data || [];
+      setHasDaoEarnings(daoRewards.some(r => parseFloat(r.amount) > 0));
+    } catch (e) { /* non-critical — DAO section stays hidden on error */ }
+  }, [wallet]);
+
   useEffect(() => {
     if (connected && !statsLoaded && !loadingRef.current) {
       loadStats();
       loadAirdrops();
+    }
+    if (connected && wallet?.adapter?.publicKey) {
+      checkDaoEarnings();
     }
     if (!connected) {
       setStats({ totalStaked: 0, stakedByCollection: [], totalRewards: 0 });
       setRewards([]);
       setGlobalStats([]);
       setStatsLoaded(false);
+      setHasDaoEarnings(false);
     }
-  }, [connected, statsLoaded, loadStats, loadAirdrops]);
+  }, [connected, statsLoaded, loadStats, loadAirdrops, checkDaoEarnings, wallet?.adapter?.publicKey]);
 
   // Payment helper — signs locally, sends via backend proxy (keeps Helius API key server-side)
   const createPaymentTx = useCallback(async (recipient, amountSOL) => {
@@ -264,8 +278,8 @@ const StakingStats = ({ walletNFTs = [] }) => {
         </div>
       ) : (
         <>
-          {/* Layout: 2-col normally, 3-col when wallet connected (DaoStats handles its own empty state) */}
-          <div className={`grid grid-cols-1 gap-6 mb-6 ${connected ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+          {/* Layout: 2-col normally, 3-col only when user has actual DAO earnings */}
+          <div className={`grid grid-cols-1 gap-6 mb-6 ${hasDaoEarnings ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
 
             {/* Left: User staking + Collection stats */}
             <div className="bg-[#0d1a0d] border border-[#1e3a1e] rounded-xl p-4 space-y-4">
@@ -352,9 +366,12 @@ const StakingStats = ({ walletNFTs = [] }) => {
               </button>
             </div>
 
-            {/* Right: DAO Earning + Claim DAO (only when wallet connected) */}
-            {connected && (
-              <DaoStats walletAddress={wallet?.adapter?.publicKey?.toString()} />
+            {/* DAO Earning column — only shown when user has actual DAO earnings */}
+            {hasDaoEarnings && (
+              <DaoStats
+                walletAddress={wallet?.adapter?.publicKey?.toString()}
+                onEarningsChange={setHasDaoEarnings}
+              />
             )}
           </div>
 

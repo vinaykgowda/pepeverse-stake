@@ -5,7 +5,7 @@ import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana
 import { formatToken, formatSol } from '../../utils/format';
 import api from '../../services/api';
 
-const DaoStats = ({ walletAddress }) => {
+const DaoStats = ({ walletAddress, onEarningsChange }) => {
   const { wallet } = useWallet();
 
   // DAO rewards state
@@ -43,6 +43,9 @@ const DaoStats = ({ walletAddress }) => {
 
       const rewards = rewardsRes?.data?.data || [];
       setDaoRewards(rewards);
+      if (onEarningsChange) {
+        onEarningsChange(rewards.some(r => parseFloat(r.amount) > 0));
+      }
 
       // Build daily rates map from rewards (token_symbol → daily_rate if provided)
       const rates = {};
