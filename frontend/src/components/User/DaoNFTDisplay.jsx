@@ -1,23 +1,18 @@
 // frontend/src/components/User/DaoNFTDisplay.jsx
+// NFT name and image come from the API (Helius metadata fetched server-side).
+// walletNFTs is kept as a secondary enrichment source since it's soft staking.
 import React, { useMemo } from 'react';
 
 const DaoNFTDisplay = ({ eligibleNFTs = [], walletNFTs = [], stakedNFTs = [], loading = false }) => {
-  // Build a lookup map from mint address → NFT data (image, name) from wallet NFTs
-  // walletNFTs use camelCase mintAddress; stakedNFTs from DB use snake_case mint_address
-  const nftDataMap = useMemo(() => {
+  // Build lookup from walletNFTs (soft staking — NFT stays in wallet, so Helius returns it)
+  const walletMap = useMemo(() => {
     const map = {};
-    // walletNFTs have image + name from Helius — this is the primary source
     walletNFTs.forEach(nft => {
-      const mint = nft.mintAddress || nft.mint_address || nft.mint;
+      const mint = nft.mintAddress || nft.mint_address;
       if (mint) map[mint] = nft;
     });
-    // stakedNFTs from DB don't have image/name, but add them as fallback keys
-    stakedNFTs.forEach(nft => {
-      const mint = nft.mintAddress || nft.mint_address || nft.mint;
-      if (mint && !map[mint]) map[mint] = nft;
-    });
     return map;
-  }, [walletNFTs, stakedNFTs]);
+  }, [walletNFTs]);
 
   if (loading) {
     return (
@@ -42,17 +37,17 @@ const DaoNFTDisplay = ({ eligibleNFTs = [], walletNFTs = [], stakedNFTs = [], lo
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
       {eligibleNFTs.map((nft) => {
-        const mint = nft.mint_address || nft.mintAddress || nft.mint;
+        const mint = nft.mint_address || nft.mintAddress;
 
-        // Enrich with wallet/staked NFT data for image and name
-        const enriched = nftDataMap[mint] || {};
-        const image = enriched.image || nft.image || enriched.metadata?.image || null;
-        const name = enriched.name || enriched.metadata?.name || nft.name || null;
-
-        // Clean display: use real name if available, otherwise show last 6 chars of mint
-        const displayName = name || (mint ? `#${mint.slice(-6)}` : 'DAO NFT');        const shortMint = mint ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : '—';
-
-        // Show DAO earnings summary on the card
+        // Priority order for name and image:
+        // 1. API response (Helius metadata fetched server-side in dao-eligible-nfts endpoint)
+        // 2. walletNFTs lookup (soft staking — NFT is still in wallet)
+        // 3. Fallback
+        const walletNft = walletMap[mint] || {};
+        const image = nft.image || walletNft.image || null;
+        const name = nft.name || walletNft.name || null;
+        const displayName = name || (mint ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : 'DAO NFT');
+        const shortMint = mint ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : '—';
         const topEarning = nft.dao_earnings?.[0];
 
         return (
@@ -65,20 +60,15 @@ const DaoNFTDisplay = ({ eligibleNFTs = [], walletNFTs = [], stakedNFTs = [], lo
                 src={image}
                 alt={displayName}
                 className="w-full aspect-square object-cover"
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.nextSibling && (e.target.nextSibling.style.display = 'flex');
-                }}
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
-            ) : null}
-            <div
-              className="w-full aspect-square bg-[#0a1628] items-center justify-center"
-              style={{ display: image ? 'none' : 'flex' }}
-            >
-              <span className="text-3xl">🏛️</span>
-            </div>
+            ) : (
+              <div className="w-full aspect-square bg-[#0a1628] flex items-center justify-center">
+                <span className="text-3xl">🏛️</span>
+              </div>
+            )}
             <div className="p-2">
-              <p className="text-blue-300 text-xs font-semibold truncate">{displayName}</p>
+              <p className="text-blue-300 text-xs font-semibold truncate" title={name || mint}>{displayName}</p>
               <p className="text-blue-700 text-xs font-mono mt-0.5">{shortMint}</p>
               {topEarning && (
                 <p className="text-blue-400 text-xs mt-1">
