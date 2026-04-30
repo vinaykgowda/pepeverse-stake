@@ -201,10 +201,6 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
     if (h > 0) return `${h}h ${m}m left`;
     return `${m}m left`;
   };
-    if (d > 0) return `${d}d ${h}h left`;
-    if (h > 0) return `${h}h ${m}m left`;
-    return `${m}m left`;
-  };
 
   const hasClaimableRewards = daoRewards.some(r => r.amount > 0);
 
