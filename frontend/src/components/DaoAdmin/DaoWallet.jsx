@@ -142,17 +142,17 @@ const DaoWallet = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-blue-200 mb-1">
-                    Encrypted Private Key
+                    Private Key
                   </label>
                   <textarea
                     value={encryptedKey}
                     onChange={(e) => setEncryptedKey(e.target.value)}
-                    placeholder="Encrypted private key string"
+                    placeholder="Paste your wallet's private key (base58) — it will be encrypted automatically"
                     rows={3}
                     className="w-full px-3 py-2 bg-indigo-800 border border-indigo-600 text-blue-100 placeholder-indigo-400 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
                   />
                   <p className="mt-1 text-sm text-indigo-400">
-                    Provide the encrypted private key. This wallet will be used exclusively for DAO reward distributions.
+                    Paste the raw base58 private key — the server will encrypt it automatically.
                   </p>
                 </div>
 

@@ -222,10 +222,29 @@ router.post('/wallet', verifyJWT, verifyDaoAdmin, async (req, res) => {
     if (!wallet_address) return res.status(400).json({ success: false, message: 'wallet_address is required' });
     const pool = getPool();
     await pool.query("UPDATE settings SET value=$1 WHERE key_name='dao_rewards_wallet'", [wallet_address]);
-    if (encrypted_private_key)
-      await pool.query("UPDATE settings SET value=$1 WHERE key_name='dao_rewards_wallet_encrypted_key'", [encrypted_private_key]);
+    if (encrypted_private_key) {
+      // If the key is already in iv:encrypted format, store as-is
+      // Otherwise encrypt it using the same method as the regular rewards wallet
+      let keyToStore = encrypted_private_key.trim();
+      if (!keyToStore.includes(':')) {
+        // Raw private key — encrypt it
+        const crypto = require('crypto');
+        const encKey = process.env.ENCRYPTION_KEY;
+        if (!encKey) return res.status(500).json({ success: false, message: 'ENCRYPTION_KEY not configured on server' });
+        const key = crypto.scryptSync(encKey, 'salt', 32);
+        const iv = crypto.randomBytes(16);
+        const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+        let encrypted = cipher.update(keyToStore);
+        encrypted = Buffer.concat([encrypted, cipher.final()]);
+        keyToStore = `${iv.toString('hex')}:${encrypted.toString('hex')}`;
+      }
+      await pool.query("UPDATE settings SET value=$1 WHERE key_name='dao_rewards_wallet_encrypted_key'", [keyToStore]);
+    }
     return res.json({ success: true, message: 'DAO wallet updated' });
-  } catch (e) { return res.status(500).json({ success: false, message: 'Failed to update DAO wallet' }); }
+  } catch (e) {
+    console.error('[dao-admin/wallet POST]', e.message);
+    return res.status(500).json({ success: false, message: 'Failed to update DAO wallet' });
+  }
 });
 
 // GET /available-tokens
