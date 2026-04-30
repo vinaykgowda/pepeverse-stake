@@ -19,6 +19,56 @@ function getPool() {
   return _pool;
 }
 
+// ── Shared reward calculation helper ────────────────────────────────────────
+// FIX: DAO trait rewards only accrue from MAX(claim_start, dtr.created_at)
+// This prevents backdating when a new DAO trait reward is added to existing staked NFTs.
+function calcDaoRewardsForNft(nft, daoTraitRewards) {
+  const now = Date.now();
+  let traits = [];
+  try { traits = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : []; } catch {}
+
+  // The base start time: when the user last claimed DAO rewards (or when they staked)
+  const claimStart = nft.dao_last_claim_timestamp
+    ? new Date(nft.dao_last_claim_timestamp).getTime()
+    : new Date(nft.stake_timestamp).getTime();
+
+  const earnings = [];
+
+  for (const dtr of daoTraitRewards) {
+    if (String(dtr.collection_id) !== String(nft.collection_id)) continue;
+
+    const match = traits.some(t => {
+      const tType = String(t.trait_type ?? t.type ?? '').toLowerCase();
+      const tVal  = String(t.value ?? t.trait_value ?? '').toLowerCase();
+      return tType === String(dtr.trait_type).toLowerCase() && tVal === String(dtr.trait_value).toLowerCase();
+    });
+    if (!match) continue;
+
+    // FIX: earn from MAX(claimStart, dtr.created_at) — never before the trait reward existed
+    const traitCreated = dtr.created_at ? new Date(dtr.created_at).getTime() : 0;
+    const earnStart = Math.max(claimStart, traitCreated);
+    const secondsEarning = Math.max(0, (now - earnStart) / 1000);
+
+    // Enforce 60-second minimum window
+    if (secondsEarning < 60) continue;
+
+    const daysEarning = secondsEarning / 86400;
+    const pendingAmount = parseFloat(dtr.multiplier) * daysEarning;
+
+    earnings.push({
+      trait_type: dtr.trait_type,
+      trait_value: dtr.trait_value,
+      token_address: dtr.token_address,
+      token_symbol: dtr.token_symbol,
+      token_decimals: parseInt(dtr.token_decimals) || 9,
+      daily_rate: parseFloat(dtr.multiplier),
+      pending_amount: pendingAmount,
+    });
+  }
+
+  return earnings;
+}
+
 // GET /dao-rewards?wallet_address=...
 router.get('/dao-rewards', async (req, res) => {
   try {
@@ -26,40 +76,32 @@ router.get('/dao-rewards', async (req, res) => {
     if (!wallet_address) return res.status(400).json({ success: false, message: 'wallet_address is required' });
 
     const pool = getPool();
-    const stakedResult = await pool.query(
-      `SELECT id, mint_address, collection_id, stake_timestamp, dao_last_claim_timestamp, traits,
-              EXTRACT(EPOCH FROM (NOW() - COALESCE(dao_last_claim_timestamp, stake_timestamp))) AS seconds_since_dao_claim
-       FROM staked_nfts WHERE owner_wallet = $1`,
-      [wallet_address]
-    );
-    if (stakedResult.rows.length === 0) return res.json({ success: true, data: [] });
+    const [stakedResult, daoTraitRes] = await Promise.all([
+      pool.query(
+        'SELECT id, mint_address, collection_id, stake_timestamp, dao_last_claim_timestamp, traits FROM staked_nfts WHERE owner_wallet = $1',
+        [wallet_address]
+      ),
+      pool.query(
+        'SELECT collection_id, trait_type, trait_value, token_address, token_symbol, token_decimals, multiplier, created_at FROM dao_trait_rewards WHERE is_active=TRUE'
+      ),
+    ]);
 
-    const daoTraitRes = await pool.query(
-      'SELECT collection_id, trait_type, trait_value, token_address, token_symbol, token_decimals, multiplier FROM dao_trait_rewards WHERE is_active=TRUE'
-    );
-    if (daoTraitRes.rows.length === 0) return res.json({ success: true, data: [] });
+    if (stakedResult.rows.length === 0 || daoTraitRes.rows.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
 
     const rewardsByToken = {};
     for (const nft of stakedResult.rows) {
-      const seconds = parseFloat(nft.seconds_since_dao_claim) || 0;
-      if (seconds < 60) continue;
-      const days = seconds / 86400;
-      let traits = [];
-      try { traits = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : []; } catch {}
-
-      for (const dtr of daoTraitRes.rows) {
-        if (dtr.collection_id !== nft.collection_id) continue;
-        const match = traits.some(t => {
-          const tType = String(t.trait_type ?? t.type ?? '').toLowerCase();
-          const tVal = String(t.value ?? t.trait_value ?? '').toLowerCase();
-          return tType === String(dtr.trait_type).toLowerCase() && tVal === String(dtr.trait_value).toLowerCase();
-        });
-        if (!match) continue;
-        const key = dtr.token_address;
-        if (!rewardsByToken[key]) rewardsByToken[key] = { token_address: dtr.token_address, token_symbol: dtr.token_symbol, token_decimals: parseInt(dtr.token_decimals) || 9, amount: 0 };
-        rewardsByToken[key].amount += parseFloat(dtr.multiplier) * days;
+      const earnings = calcDaoRewardsForNft(nft, daoTraitRes.rows);
+      for (const e of earnings) {
+        const key = e.token_address;
+        if (!rewardsByToken[key]) {
+          rewardsByToken[key] = { token_address: e.token_address, token_symbol: e.token_symbol, token_decimals: e.token_decimals, amount: 0 };
+        }
+        rewardsByToken[key].amount += e.pending_amount;
       }
     }
+
     return res.json({ success: true, data: Object.values(rewardsByToken) });
   } catch (e) {
     console.error('[dao-rewards]', e.message);
@@ -74,25 +116,30 @@ router.get('/dao-claim-quote', async (req, res) => {
     if (!wallet_address) return res.status(400).json({ success: false, message: 'wallet_address is required' });
 
     const pool = getPool();
-    const settingsRes = await pool.query(
-      "SELECT key_name, value FROM settings WHERE key_name IN ('dao_claim_fee','dao_rewards_wallet')"
-    );
+    const [settingsRes, stakedResult, daoTraitRes] = await Promise.all([
+      pool.query("SELECT key_name, value FROM settings WHERE key_name IN ('dao_claim_fee','dao_rewards_wallet')"),
+      pool.query('SELECT id, mint_address, collection_id, stake_timestamp, dao_last_claim_timestamp, traits FROM staked_nfts WHERE owner_wallet = $1', [wallet_address]),
+      pool.query('SELECT collection_id, trait_type, trait_value, token_address, token_symbol, token_decimals, multiplier, created_at FROM dao_trait_rewards WHERE is_active=TRUE'),
+    ]);
+
     const settings = {};
     settingsRes.rows.forEach(r => { settings[r.key_name] = r.value; });
 
-    // Reuse rewards calculation
-    const rewardsRes = await fetch(`${req.protocol}://${req.get('host')}/api/v1/user/dao-rewards?wallet_address=${wallet_address}`).catch(() => null);
-    let rewards = [];
-    if (rewardsRes && rewardsRes.ok) {
-      const data = await rewardsRes.json();
-      rewards = data.data || [];
+    const rewardsByToken = {};
+    for (const nft of stakedResult.rows) {
+      const earnings = calcDaoRewardsForNft(nft, daoTraitRes.rows);
+      for (const e of earnings) {
+        const key = e.token_address;
+        if (!rewardsByToken[key]) rewardsByToken[key] = { token_address: e.token_address, token_symbol: e.token_symbol, token_decimals: e.token_decimals, amount: 0 };
+        rewardsByToken[key].amount += e.pending_amount;
+      }
     }
 
     return res.json({ success: true, data: {
       claimFee: parseFloat(settings['dao_claim_fee'] || '0'),
       feeRecipient: settings['dao_rewards_wallet'] || null,
       requiresPayment: parseFloat(settings['dao_claim_fee'] || '0') > 0,
-      rewards,
+      rewards: Object.values(rewardsByToken),
     }});
   } catch (e) {
     console.error('[dao-claim-quote]', e.message);
@@ -107,47 +154,47 @@ router.get('/dao-eligible-nfts', async (req, res) => {
     if (!wallet_address) return res.status(400).json({ success: false, message: 'wallet_address is required' });
 
     const pool = getPool();
-    const stakedResult = await pool.query(
-      `SELECT id, mint_address, collection_id, stake_timestamp, dao_last_claim_timestamp, traits,
-              EXTRACT(EPOCH FROM (NOW() - COALESCE(dao_last_claim_timestamp, stake_timestamp))) AS seconds_since_dao_claim
-       FROM staked_nfts WHERE owner_wallet = $1`,
-      [wallet_address]
-    );
-    if (stakedResult.rows.length === 0) return res.json({ success: true, data: [] });
+    const [stakedResult, daoTraitRes] = await Promise.all([
+      pool.query(
+        'SELECT id, mint_address, collection_id, stake_timestamp, dao_last_claim_timestamp, traits FROM staked_nfts WHERE owner_wallet = $1',
+        [wallet_address]
+      ),
+      pool.query(
+        'SELECT collection_id, trait_type, trait_value, token_address, token_symbol, token_decimals, multiplier, created_at FROM dao_trait_rewards WHERE is_active=TRUE'
+      ),
+    ]);
 
-    const daoTraitRes = await pool.query(
-      'SELECT collection_id, trait_type, trait_value, token_address, token_symbol, token_decimals, multiplier FROM dao_trait_rewards WHERE is_active=TRUE'
-    );
+    if (stakedResult.rows.length === 0) return res.json({ success: true, data: [] });
 
     const eligible = [];
     for (const nft of stakedResult.rows) {
-      let traits = [];
-      try { traits = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : []; } catch {}
+      const earnings = calcDaoRewardsForNft(nft, daoTraitRes.rows);
+      if (earnings.length === 0) continue;
 
-      const seconds = parseFloat(nft.seconds_since_dao_claim) || 0;
-      const days = seconds / 86400;
-      const earnings = [];
+      // Extract name and image from stored traits/metadata JSON
+      let nftName = null;
+      let nftImage = null;
+      try {
+        const traitsRaw = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : [];
+        // Helius stores name/image at the asset level, not in attributes.
+        // If traits is an object with name/image (some storage formats), extract them.
+        if (!Array.isArray(nft.traits) && typeof nft.traits === 'object' && nft.traits !== null) {
+          nftName = nft.traits.name || null;
+          nftImage = nft.traits.image || null;
+        }
+      } catch {}
 
-      for (const dtr of daoTraitRes.rows) {
-        if (dtr.collection_id !== nft.collection_id) continue;
-        const match = traits.some(t => {
-          const tType = String(t.trait_type ?? t.type ?? '').toLowerCase();
-          const tVal = String(t.value ?? t.trait_value ?? '').toLowerCase();
-          return tType === String(dtr.trait_type).toLowerCase() && tVal === String(dtr.trait_value).toLowerCase();
-        });
-        if (!match) continue;
-        earnings.push({
-          trait_type: dtr.trait_type, trait_value: dtr.trait_value,
-          token_address: dtr.token_address, token_symbol: dtr.token_symbol,
-          token_decimals: parseInt(dtr.token_decimals) || 9,
-          daily_rate: parseFloat(dtr.multiplier),
-          pending_amount: seconds >= 60 ? parseFloat(dtr.multiplier) * days : 0,
-        });
-      }
-      if (earnings.length > 0) {
-        eligible.push({ mint_address: nft.mint_address, name: `NFT ${nft.mint_address.slice(0, 8)}`, image: null, dao_earnings: earnings });
-      }
+        // Clean display name: use stored name, or show last chars of mint
+        const displayName = nftName || `#${nft.mint_address.slice(-6)}`;
+
+      eligible.push({
+        mint_address: nft.mint_address,
+        name: displayName,
+        image: nftImage,
+        dao_earnings: earnings,
+      });
     }
+
     return res.json({ success: true, data: eligible });
   } catch (e) {
     console.error('[dao-eligible-nfts]', e.message);
@@ -204,7 +251,6 @@ router.post('/dao-claim', async (req, res) => {
   try {
     const { wallet_address } = req.body;
     if (!wallet_address) return res.status(400).json({ success: false, message: 'wallet_address is required' });
-    // Delegate to backend handler
     const { claimDaoRewards } = require('../backend/src/dao-rewards-handler');
     const result = await claimDaoRewards(wallet_address, req.body.payment_signature || null);
     return result.success ? res.json(result) : res.status(400).json(result);

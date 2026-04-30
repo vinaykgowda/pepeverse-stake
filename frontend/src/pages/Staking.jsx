@@ -195,6 +195,8 @@ const Staking = () => {
           {activeTab === 'dao' ? (
             <DaoNFTDisplay
               eligibleNFTs={daoEligibleNFTs}
+              walletNFTs={walletNFTs}
+              stakedNFTs={stakedNFTs}
               loading={loadingDaoNFTs}
             />
           ) : (

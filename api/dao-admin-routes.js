@@ -359,13 +359,24 @@ router.get('/analytics/airdrop-claims', verifyJWT, verifyDaoAdmin, async (req, r
 // GET /rewards-breakdown
 router.get('/rewards-breakdown', verifyJWT, verifyDaoAdmin, async (req, res) => {
   try {
+    // FIX: earn from MAX(claim_start, dtr.created_at) to prevent backdating
     const result = await getPool().query(
       `SELECT sn.owner_wallet AS wallet_address, dtr.token_symbol, dtr.token_address,
-              SUM(dtr.multiplier * EXTRACT(EPOCH FROM (NOW() - COALESCE(sn.dao_last_claim_timestamp, sn.stake_timestamp))) / 86400.0) AS total_pending_dao_rewards
-       FROM staked_nfts sn JOIN dao_trait_rewards dtr ON dtr.is_active=TRUE
+              SUM(dtr.multiplier *
+                GREATEST(0, EXTRACT(EPOCH FROM (NOW() - GREATEST(
+                  COALESCE(sn.dao_last_claim_timestamp, sn.stake_timestamp),
+                  COALESCE(dtr.created_at, '2000-01-01'::timestamptz)
+                ))) / 86400.0)
+              ) AS total_pending_dao_rewards
+       FROM staked_nfts sn JOIN dao_trait_rewards dtr ON dtr.is_active=TRUE AND dtr.collection_id=sn.collection_id
        WHERE sn.owner_wallet IS NOT NULL
        GROUP BY sn.owner_wallet, dtr.token_symbol, dtr.token_address
-       HAVING SUM(dtr.multiplier * EXTRACT(EPOCH FROM (NOW() - COALESCE(sn.dao_last_claim_timestamp, sn.stake_timestamp))) / 86400.0) > 0
+       HAVING SUM(dtr.multiplier *
+                GREATEST(0, EXTRACT(EPOCH FROM (NOW() - GREATEST(
+                  COALESCE(sn.dao_last_claim_timestamp, sn.stake_timestamp),
+                  COALESCE(dtr.created_at, '2000-01-01'::timestamptz)
+                ))) / 86400.0)
+              ) > 0
        ORDER BY sn.owner_wallet, dtr.token_symbol`
     );
     return res.json({ success: true, data: result.rows });

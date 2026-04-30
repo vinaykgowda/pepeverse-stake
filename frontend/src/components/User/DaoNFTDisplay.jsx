@@ -1,7 +1,17 @@
 // frontend/src/components/User/DaoNFTDisplay.jsx
-import React from 'react';
+import React, { useMemo } from 'react';
 
-const DaoNFTDisplay = ({ eligibleNFTs = [], loading = false }) => {
+const DaoNFTDisplay = ({ eligibleNFTs = [], walletNFTs = [], stakedNFTs = [], loading = false }) => {
+  // Build a lookup map from mint address → NFT data (image, name) from wallet/staked lists
+  const nftDataMap = useMemo(() => {
+    const map = {};
+    [...walletNFTs, ...stakedNFTs].forEach(nft => {
+      const mint = nft.mintAddress || nft.mint_address || nft.mint;
+      if (mint) map[mint] = nft;
+    });
+    return map;
+  }, [walletNFTs, stakedNFTs]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -26,9 +36,18 @@ const DaoNFTDisplay = ({ eligibleNFTs = [], loading = false }) => {
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
       {eligibleNFTs.map((nft) => {
         const mint = nft.mint_address || nft.mintAddress || nft.mint;
-        const name = nft.name || nft.metadata?.name || 'DAO NFT';
-        const image = nft.image || nft.metadata?.image;
-        const shortMint = mint ? `${mint.slice(0, 4)}...${mint.slice(-4)}` : '—';
+
+        // Enrich with wallet/staked NFT data for image and name
+        const enriched = nftDataMap[mint] || {};
+        const image = enriched.image || nft.image || enriched.metadata?.image || null;
+        const name = enriched.name || enriched.metadata?.name || nft.name || null;
+
+        // Clean display: use real name if available, otherwise show last 6 chars of mint
+        const displayName = name || (mint ? `#${mint.slice(-6)}` : 'DAO NFT');
+        const shortMint = mint ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : '—';
+
+        // Show DAO earnings summary on the card
+        const topEarning = nft.dao_earnings?.[0];
 
         return (
           <div
@@ -38,18 +57,28 @@ const DaoNFTDisplay = ({ eligibleNFTs = [], loading = false }) => {
             {image ? (
               <img
                 src={image}
-                alt={name}
+                alt={displayName}
                 className="w-full aspect-square object-cover"
-                onError={(e) => { e.target.style.display = 'none'; }}
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextSibling && (e.target.nextSibling.style.display = 'flex');
+                }}
               />
-            ) : (
-              <div className="w-full aspect-square bg-[#0a1628] flex items-center justify-center">
-                <span className="text-3xl">🏛️</span>
-              </div>
-            )}
+            ) : null}
+            <div
+              className="w-full aspect-square bg-[#0a1628] items-center justify-center"
+              style={{ display: image ? 'none' : 'flex' }}
+            >
+              <span className="text-3xl">🏛️</span>
+            </div>
             <div className="p-2">
-              <p className="text-blue-300 text-xs font-semibold truncate">{name}</p>
+              <p className="text-blue-300 text-xs font-semibold truncate">{displayName}</p>
               <p className="text-blue-700 text-xs font-mono mt-0.5">{shortMint}</p>
+              {topEarning && (
+                <p className="text-blue-400 text-xs mt-1">
+                  {topEarning.daily_rate}/day {topEarning.token_symbol}
+                </p>
+              )}
             </div>
           </div>
         );
