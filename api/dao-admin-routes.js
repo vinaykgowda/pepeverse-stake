@@ -321,12 +321,20 @@ router.get('/analytics/dashboard', verifyJWT, verifyDaoAdmin, async (req, res) =
   try {
     const pool = getPool();
     const [stakers, rewards, admins] = await Promise.all([
-      // Count distinct wallets that have at least one staked NFT matching an active DAO trait reward
+      // Count distinct wallets with staked NFTs that actually match a DAO trait reward
+      // Must check trait content, not just collection_id
       pool.query(`
         SELECT COUNT(DISTINCT sn.owner_wallet) AS total
         FROM staked_nfts sn
         JOIN dao_trait_rewards dtr ON dtr.collection_id = sn.collection_id AND dtr.is_active = TRUE
         WHERE sn.owner_wallet IS NOT NULL
+          AND sn.traits IS NOT NULL
+          AND sn.traits::text != 'null'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements(sn.traits::jsonb) AS t
+            WHERE (t->>'trait_type') ILIKE dtr.trait_type
+              AND (t->>'value') ILIKE dtr.trait_value
+          )
       `),
       pool.query("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE transaction_type='DAO_CLAIM'"),
       pool.query('SELECT COUNT(*) AS total FROM dao_admins WHERE is_active=TRUE'),
@@ -388,8 +396,12 @@ router.get('/rewards-breakdown', verifyJWT, verifyDaoAdmin, async (req, res) => 
       FROM dao_trait_rewards dtr
       JOIN collections c ON c.id = dtr.collection_id
       LEFT JOIN staked_nfts sn ON sn.collection_id = dtr.collection_id
-        AND sn.traits::jsonb @> jsonb_build_array(
-          jsonb_build_object('trait_type', dtr.trait_type, 'value', dtr.trait_value)
+        AND sn.traits IS NOT NULL
+        AND sn.traits::text != 'null'
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(sn.traits::jsonb) AS t
+          WHERE (t->>'trait_type') ILIKE dtr.trait_type
+            AND (t->>'value') ILIKE dtr.trait_value
         )
       WHERE dtr.is_active = TRUE
       GROUP BY dtr.id, dtr.token_address, dtr.token_symbol, dtr.token_decimals,
