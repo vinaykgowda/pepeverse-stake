@@ -325,7 +325,12 @@ router.post('/dao-airdrop-claim', async (req, res) => {
       settings.rows.forEach(r => { cfg[r.key_name] = r.value; });
       if (!cfg['dao_rewards_wallet'] || !cfg['dao_rewards_wallet_encrypted_key']) {
         await client.query('ROLLBACK');
-        return res.status(500).json({ success: false, message: 'DAO rewards wallet not configured' });
+        return res.status(500).json({ success: false, message: 'DAO rewards wallet not configured. Please set it in DAO Admin → Wallet.' });
+      }
+      // Validate key format before attempting decrypt
+      if (!cfg['dao_rewards_wallet_encrypted_key'].includes(':')) {
+        await client.query('ROLLBACK');
+        return res.status(500).json({ success: false, message: 'DAO wallet key is in wrong format. Please re-save it in DAO Admin → Wallet.' });
       }
 
       const { getKeypairFromPrivateKey, getConnection, sendTransaction } = require('../backend/src/solana-transaction-utils');
