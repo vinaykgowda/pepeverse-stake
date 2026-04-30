@@ -371,8 +371,9 @@ router.post('/airdrops/:id/activate', verifyJWT, verifyDaoAdmin, async (req, res
   try {
     const { id } = req.params;
     const pool = getPool();
+    // Set status=active, activated_at=NOW(), expires_at=NOW()+7days (same as regular airdrops)
     const result = await pool.query(
-      "UPDATE dao_airdrop_configs SET status='active', activated_at=NOW(), updated_at=NOW() WHERE id=$1 RETURNING *", [id]
+      "UPDATE dao_airdrop_configs SET status='active', activated_at=NOW(), expires_at=NOW() + INTERVAL '7 days', updated_at=NOW() WHERE id=$1 RETURNING *", [id]
     );
     if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Not found' });
     // Generate snapshots inline

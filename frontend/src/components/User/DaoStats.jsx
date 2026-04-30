@@ -201,6 +201,10 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
     if (h > 0) return `${h}h ${m}m left`;
     return `${m}m left`;
   };
+    if (d > 0) return `${d}d ${h}h left`;
+    if (h > 0) return `${h}h ${m}m left`;
+    return `${m}m left`;
+  };
 
   const hasClaimableRewards = daoRewards.some(r => r.amount > 0);
 
@@ -277,7 +281,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
           )}
           <div className="space-y-3">
             {daoAirdrops.map(airdrop => {
-              const expired = airdrop.time_remaining_seconds !== null && airdrop.time_remaining_seconds <= 0;
+              const expired = airdrop.time_remaining_seconds <= 0;
               return (
                 <div
                   key={airdrop.dao_airdrop_config_id}
