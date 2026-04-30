@@ -241,11 +241,100 @@ router.get('/available-tokens', verifyJWT, verifyDaoAdmin, async (req, res) => {
   } catch (e) { return res.status(500).json({ success: false, message: 'Failed to fetch available tokens' }); }
 });
 
-// GET /airdrops
+// POST /airdrops/preview — preview eligible wallets + treasury balance check
+router.post('/airdrops/preview', verifyJWT, verifyDaoAdmin, async (req, res) => {
+  try {
+    const { collection_id, airdrop_type, token_address, amount_per_nft, minimum_threshold, trait_type, trait_value } = req.body;
+    if (!collection_id || !airdrop_type || !token_address || amount_per_nft == null)
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+
+    const pool = getPool();
+
+    // Find eligible wallets
+    let wallets = [];
+    if (airdrop_type === 'threshold') {
+      const r = await pool.query(
+        'SELECT owner_wallet AS wallet, COUNT(*) AS nft_count FROM staked_nfts WHERE collection_id=$1 GROUP BY owner_wallet HAVING COUNT(*)>=$2',
+        [collection_id, minimum_threshold || 1]
+      );
+      wallets = r.rows.map(w => ({ wallet: w.wallet, nft_count: parseInt(w.nft_count), token_amount: parseInt(w.nft_count) * parseFloat(amount_per_nft) }));
+    } else {
+      const r = await pool.query(
+        `SELECT owner_wallet AS wallet, COUNT(*) AS nft_count FROM staked_nfts
+         WHERE collection_id=$1 AND traits IS NOT NULL AND traits::text != 'null'
+           AND EXISTS (SELECT 1 FROM jsonb_array_elements(traits::jsonb) t WHERE (t->>'trait_type') ILIKE $2 AND (t->>'value') ILIKE $3)
+         GROUP BY owner_wallet`,
+        [collection_id, trait_type || '', trait_value || '']
+      );
+      wallets = r.rows.map(w => ({ wallet: w.wallet, nft_count: parseInt(w.nft_count), token_amount: parseInt(w.nft_count) * parseFloat(amount_per_nft) }));
+    }
+
+    const total_tokens = wallets.reduce((s, w) => s + w.token_amount, 0);
+
+    // Check DAO wallet token balance via Helius
+    let treasury_balance = null;
+    let sufficient = true;
+    let shortfall = 0;
+    try {
+      const walletRow = await pool.query("SELECT value FROM settings WHERE key_name='dao_rewards_wallet'");
+      const daoWallet = walletRow.rows[0]?.value;
+      if (daoWallet) {
+        const axios = require('axios');
+        const endpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+        const apiKey = process.env.HELIUS_API_KEY;
+        if (endpoint && apiKey) {
+          const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
+          const r = await axios.post(url, {
+            jsonrpc: '2.0', id: 'get-token-accounts', method: 'getTokenAccountsByOwner',
+            params: [daoWallet, { mint: token_address }, { encoding: 'jsonParsed' }]
+          }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
+          const accounts = r.data?.result?.value || [];
+          treasury_balance = accounts.reduce((s, a) => s + (a?.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0), 0);
+          sufficient = treasury_balance >= total_tokens;
+          shortfall = sufficient ? 0 : total_tokens - treasury_balance;
+        }
+      }
+    } catch { /* treasury check failed — don't block preview */ }
+
+    return res.json({ success: true, data: {
+      eligible_wallets: wallets,
+      total_wallets: wallets.length,
+      total_tokens,
+      treasury_balance,
+      sufficient: treasury_balance === null ? true : sufficient,
+      shortfall,
+    }});
+  } catch (e) {
+    console.error('[dao-admin/airdrops/preview]', e.message);
+    return res.status(500).json({ success: false, message: 'Failed to preview airdrop eligibility' });
+  }
+});
+
+// GET /airdrops/:id/eligible-wallets — list snapshot wallets with claim status
+router.get('/airdrops/:id/eligible-wallets', verifyJWT, verifyDaoAdmin, async (req, res) => {
+  try {
+    const result = await getPool().query(
+      `SELECT wallet_address, token_amount, is_claimed, claimed_at, claim_tx_hash
+       FROM dao_airdrop_snapshots WHERE dao_airdrop_config_id=$1 ORDER BY wallet_address`,
+      [req.params.id]
+    );
+    return res.json({ success: true, data: result.rows });
+  } catch (e) { return res.status(500).json({ success: false, message: 'Failed to fetch eligible wallets' }); }
+});
+
+// GET /airdrops — with eligible_count and remaining_count
 router.get('/airdrops', verifyJWT, verifyDaoAdmin, async (req, res) => {
   try {
     const result = await getPool().query(
-      'SELECT * FROM dao_airdrop_configs ORDER BY created_at DESC'
+      `SELECT dac.*,
+              c.name AS collection_name,
+              COUNT(snap.id) AS eligible_count,
+              COUNT(snap.id) FILTER (WHERE snap.is_claimed = FALSE) AS remaining_count
+       FROM dao_airdrop_configs dac
+       LEFT JOIN collections c ON c.id = dac.collection_id
+       LEFT JOIN dao_airdrop_snapshots snap ON snap.dao_airdrop_config_id = dac.id
+       GROUP BY dac.id, c.name
+       ORDER BY dac.created_at DESC`
     );
     return res.json({ success: true, data: result.rows });
   } catch (e) { return res.status(500).json({ success: false, message: 'Failed to fetch DAO airdrops' }); }
