@@ -244,9 +244,11 @@ router.get('/dao-airdrops', async (req, res) => {
     const result = await getPool().query(
       `SELECT snap.id, snap.dao_airdrop_config_id, snap.token_amount,
               dac.token_symbol, dac.token_address, dac.token_decimals, dac.expires_at,
+              c.name AS collection_name,
               EXTRACT(EPOCH FROM (dac.expires_at - NOW()))::INTEGER AS time_remaining_seconds
        FROM dao_airdrop_snapshots snap
        JOIN dao_airdrop_configs dac ON snap.dao_airdrop_config_id = dac.id
+       JOIN collections c ON c.id = dac.collection_id
        WHERE snap.wallet_address=$1
          AND snap.is_claimed=false
          AND dac.status='active'

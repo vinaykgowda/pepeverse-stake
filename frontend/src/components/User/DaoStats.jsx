@@ -290,7 +290,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
                 >
                   <div>
                     <div className="text-sm font-bold text-blue-200">
-                      {airdrop.collection_name} — {airdrop.token_symbol}
+                      {airdrop.collection_name ? `${airdrop.collection_name} — ` : ''}{airdrop.token_symbol}
                     </div>
                     <div className="text-base font-extrabold text-white mt-0.5">
                       {parseFloat(airdrop.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })}{' '}
