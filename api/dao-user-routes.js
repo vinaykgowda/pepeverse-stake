@@ -353,14 +353,15 @@ router.post('/dao-airdrop-claim', async (req, res) => {
 
       const signature = await sendTransaction(instructions, daoKeypair);
 
-      // Record transaction — only use columns that exist in the transactions table
+      // Record transaction — wrapped in savepoint so failure doesn't abort the main transaction
       try {
+        await client.query('SAVEPOINT before_tx_record');
         await client.query(
           "INSERT INTO transactions (wallet_address, transaction_type, amount, token_address, status, transaction_hash) VALUES ($1,'DAO_AIRDROP_CLAIM',$2,$3,'CONFIRMED',$4)",
           [wallet_address, tokenAmount, s.token_address, signature]
         );
       } catch (txErr) {
-        // Non-fatal — log but don't rollback since transfer already succeeded
+        await client.query('ROLLBACK TO SAVEPOINT before_tx_record');
         console.error('[dao-airdrop-claim] transaction record failed (non-fatal):', txErr.message);
       }
 
