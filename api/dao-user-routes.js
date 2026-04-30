@@ -244,10 +244,15 @@ router.get('/dao-airdrops', async (req, res) => {
     const result = await getPool().query(
       `SELECT snap.id, snap.dao_airdrop_config_id, snap.token_amount,
               dac.token_symbol, dac.token_address, dac.token_decimals, dac.expires_at,
-              EXTRACT(EPOCH FROM (dac.expires_at - NOW()))::INTEGER AS time_remaining_seconds
+              CASE WHEN dac.expires_at IS NULL THEN NULL
+                   ELSE EXTRACT(EPOCH FROM (dac.expires_at - NOW()))::INTEGER
+              END AS time_remaining_seconds
        FROM dao_airdrop_snapshots snap
        JOIN dao_airdrop_configs dac ON snap.dao_airdrop_config_id = dac.id
-       WHERE snap.wallet_address=$1 AND snap.is_claimed=false AND dac.status='active' AND dac.expires_at > NOW()`,
+       WHERE snap.wallet_address=$1
+         AND snap.is_claimed=false
+         AND dac.status='active'
+         AND (dac.expires_at IS NULL OR dac.expires_at > NOW())`,
       [wallet_address]
     );
     return res.json({ success: true, data: result.rows });
@@ -266,7 +271,8 @@ router.post('/dao-airdrop-quote', async (req, res) => {
     const snap = await pool.query(
       `SELECT snap.token_amount FROM dao_airdrop_snapshots snap
        JOIN dao_airdrop_configs dac ON snap.dao_airdrop_config_id=dac.id
-       WHERE snap.id=$1 AND snap.wallet_address=$2 AND snap.is_claimed=false AND dac.status='active' AND dac.expires_at>NOW()`,
+       WHERE snap.id=$1 AND snap.wallet_address=$2 AND snap.is_claimed=false AND dac.status='active'
+         AND (dac.expires_at IS NULL OR dac.expires_at>NOW())`,
       [dao_airdrop_snapshot_id, wallet_address]
     );
     if (snap.rows.length === 0) return res.status(404).json({ success: false, message: 'No eligible DAO airdrop found' });
@@ -313,7 +319,7 @@ router.post('/dao-airdrop-claim', async (req, res) => {
       if (snap.rows.length === 0) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, message: 'Not eligible' }); }
       const s = snap.rows[0];
       if (s.is_claimed) { await client.query('ROLLBACK'); return res.status(409).json({ success: false, message: 'Already claimed' }); }
-      if (new Date(s.expires_at) <= new Date()) { await client.query('ROLLBACK'); return res.status(410).json({ success: false, message: 'Expired' }); }
+      if (s.expires_at && new Date(s.expires_at) <= new Date()) { await client.query('ROLLBACK'); return res.status(410).json({ success: false, message: 'Expired' }); }
 
       const settings = await client.query("SELECT key_name, value FROM settings WHERE key_name IN ('dao_claim_fee','dao_rewards_wallet','dao_rewards_wallet_encrypted_key')");
       const cfg = {};

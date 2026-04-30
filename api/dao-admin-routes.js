@@ -355,6 +355,17 @@ router.post('/airdrops', verifyJWT, verifyDaoAdmin, async (req, res) => {
   } catch (e) { return res.status(500).json({ success: false, message: 'Failed to create DAO airdrop' }); }
 });
 
+// POST /airdrops/:id/deactivate
+router.post('/airdrops/:id/deactivate', verifyJWT, verifyDaoAdmin, async (req, res) => {
+  try {
+    const result = await getPool().query(
+      "UPDATE dao_airdrop_configs SET status='inactive', updated_at=NOW() WHERE id=$1 RETURNING id", [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Not found' });
+    return res.json({ success: true, message: 'DAO airdrop deactivated' });
+  } catch (e) { return res.status(500).json({ success: false, message: 'Failed to deactivate DAO airdrop' }); }
+});
+
 // POST /airdrops/:id/activate
 router.post('/airdrops/:id/activate', verifyJWT, verifyDaoAdmin, async (req, res) => {
   try {

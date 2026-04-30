@@ -201,6 +201,20 @@ const DaoAirdropManager = () => {
     }
   };
 
+  const handleDeactivate = async (id) => {
+    if (!window.confirm('Deactivate this DAO airdrop?')) return;
+    try {
+      setLoading(true);
+      await axios.post(`${BASE}/airdrops/${id}/deactivate`, {}, authHeaders());
+      setSuccess('DAO airdrop deactivated');
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to deactivate DAO airdrop');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleViewEligible = async (id) => {
     setEligibleModal({ id, wallets: [], loading: true });
     try {
@@ -437,6 +451,9 @@ const DaoAirdropManager = () => {
                       </button>
                       {airdrop.status !== 'active' && (
                         <button onClick={() => handleActivate(airdrop.id)} className="text-green-400 hover:text-green-200">Activate</button>
+                      )}
+                      {airdrop.status === 'active' && (
+                        <button onClick={() => handleDeactivate(airdrop.id)} className="text-yellow-400 hover:text-yellow-200">Deactivate</button>
                       )}
                       {airdrop.status === 'inactive' && (
                         <button onClick={() => handleDelete(airdrop.id)} className="text-red-400 hover:text-red-200">Delete</button>

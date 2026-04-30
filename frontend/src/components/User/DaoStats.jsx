@@ -194,6 +194,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
   }, [daoAirdropQuote, walletAddress, createPaymentTx]);
 
   const formatCountdown = (seconds) => {
+    if (seconds === null || seconds === undefined) return 'No expiry';
     if (seconds <= 0) return 'Expired';
     const d = Math.floor(seconds / 86400), h = Math.floor((seconds % 86400) / 3600), m = Math.floor((seconds % 3600) / 60);
     if (d > 0) return `${d}d ${h}h left`;
@@ -276,7 +277,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
           )}
           <div className="space-y-3">
             {daoAirdrops.map(airdrop => {
-              const expired = airdrop.time_remaining_seconds <= 0;
+              const expired = airdrop.time_remaining_seconds !== null && airdrop.time_remaining_seconds <= 0;
               return (
                 <div
                   key={airdrop.dao_airdrop_config_id}
