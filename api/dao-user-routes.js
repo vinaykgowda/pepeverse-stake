@@ -166,36 +166,70 @@ router.get('/dao-eligible-nfts', async (req, res) => {
 
     if (stakedResult.rows.length === 0) return res.json({ success: true, data: [] });
 
-    const eligible = [];
+    // First pass: find eligible NFTs
+    const eligiblePairs = [];
     for (const nft of stakedResult.rows) {
       const earnings = calcDaoRewardsForNft(nft, daoTraitRes.rows);
-      if (earnings.length === 0) continue;
-
-      // Extract name and image from stored traits/metadata JSON
-      let nftName = null;
-      let nftImage = null;
-      try {
-        const traitsRaw = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : [];
-        // Helius stores name/image at the asset level, not in attributes.
-        // If traits is an object with name/image (some storage formats), extract them.
-        if (!Array.isArray(nft.traits) && typeof nft.traits === 'object' && nft.traits !== null) {
-          nftName = nft.traits.name || null;
-          nftImage = nft.traits.image || null;
-        }
-      } catch {}
-
-        // Clean display name: use stored name, or show last chars of mint
-        const displayName = nftName || `#${nft.mint_address.slice(-6)}`;
-
-      eligible.push({
-        mint_address: nft.mint_address,
-        name: displayName,
-        image: nftImage,
-        dao_earnings: earnings,
-      });
+      if (earnings.length > 0) eligiblePairs.push({ nft, earnings });
     }
+    if (eligiblePairs.length === 0) return res.json({ success: true, data: [] });
 
-    return res.json({ success: true, data: eligible });
+    // Fetch metadata from Helius for eligible NFTs (small batch — typically 1-5 NFTs)
+    const metadataMap = {};
+    try {
+      const endpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+      const apiKey = process.env.HELIUS_API_KEY;
+      if (endpoint && apiKey) {
+        const url = endpoint.includes('?api-key=') ? endpoint : `${endpoint.replace(/\/$/, '')}/?api-key=${apiKey}`;
+        const axios = require('axios');
+        const mints = eligiblePairs.map(e => e.nft.mint_address);
+        // Try getAssetBatch first (single request for all mints)
+        try {
+          const batchRes = await axios.post(url, {
+            jsonrpc: '2.0', id: 'get-assets-batch', method: 'getAssetBatch',
+            params: { ids: mints }
+          }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
+          const assets = batchRes.data?.result || [];
+          for (const asset of assets) {
+            if (asset?.id) {
+              metadataMap[asset.id] = {
+                name: asset.content?.metadata?.name || null,
+                image: asset.content?.links?.image || asset.content?.files?.[0]?.uri || null,
+              };
+            }
+          }
+        } catch {
+          // Fallback: fetch individually (only for small batches)
+          for (const { nft } of eligiblePairs.slice(0, 5)) {
+            try {
+              const r = await axios.post(url, {
+                jsonrpc: '2.0', id: 'get-asset', method: 'getAsset',
+                params: { id: nft.mint_address }
+              }, { headers: { 'Content-Type': 'application/json' }, timeout: 8000 });
+              const asset = r.data?.result;
+              if (asset) {
+                metadataMap[nft.mint_address] = {
+                  name: asset.content?.metadata?.name || null,
+                  image: asset.content?.links?.image || asset.content?.files?.[0]?.uri || null,
+                };
+              }
+            } catch { /* skip */ }
+          }
+        }
+      }
+    } catch { /* metadata fetch failed — use fallback names */ }
+
+    const result = eligiblePairs.map(({ nft, earnings }) => {
+      const meta = metadataMap[nft.mint_address] || {};
+      return {
+        mint_address: nft.mint_address,
+        name: meta.name || null,
+        image: meta.image || null,
+        dao_earnings: earnings,
+      };
+    });
+
+    return res.json({ success: true, data: result });
   } catch (e) {
     console.error('[dao-eligible-nfts]', e.message);
     return res.status(500).json({ success: false, message: 'Failed to get DAO eligible NFTs' });

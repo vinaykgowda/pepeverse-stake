@@ -2,12 +2,19 @@
 import React, { useMemo } from 'react';
 
 const DaoNFTDisplay = ({ eligibleNFTs = [], walletNFTs = [], stakedNFTs = [], loading = false }) => {
-  // Build a lookup map from mint address → NFT data (image, name) from wallet/staked lists
+  // Build a lookup map from mint address → NFT data (image, name) from wallet NFTs
+  // walletNFTs use camelCase mintAddress; stakedNFTs from DB use snake_case mint_address
   const nftDataMap = useMemo(() => {
     const map = {};
-    [...walletNFTs, ...stakedNFTs].forEach(nft => {
+    // walletNFTs have image + name from Helius — this is the primary source
+    walletNFTs.forEach(nft => {
       const mint = nft.mintAddress || nft.mint_address || nft.mint;
       if (mint) map[mint] = nft;
+    });
+    // stakedNFTs from DB don't have image/name, but add them as fallback keys
+    stakedNFTs.forEach(nft => {
+      const mint = nft.mintAddress || nft.mint_address || nft.mint;
+      if (mint && !map[mint]) map[mint] = nft;
     });
     return map;
   }, [walletNFTs, stakedNFTs]);
@@ -43,8 +50,7 @@ const DaoNFTDisplay = ({ eligibleNFTs = [], walletNFTs = [], stakedNFTs = [], lo
         const name = enriched.name || enriched.metadata?.name || nft.name || null;
 
         // Clean display: use real name if available, otherwise show last 6 chars of mint
-        const displayName = name || (mint ? `#${mint.slice(-6)}` : 'DAO NFT');
-        const shortMint = mint ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : '—';
+        const displayName = name || (mint ? `#${mint.slice(-6)}` : 'DAO NFT');        const shortMint = mint ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : '—';
 
         // Show DAO earnings summary on the card
         const topEarning = nft.dao_earnings?.[0];
