@@ -126,7 +126,12 @@ router.post('/admins', verifyJWT, verifyDaoAdmin, async (req, res) => {
 router.get('/trait-rewards', verifyJWT, verifyDaoAdmin, async (req, res) => {
   try {
     const result = await getPool().query(
-      'SELECT id, collection_id, trait_type, trait_value, token_address, token_symbol, token_decimals, multiplier, is_active, created_at, updated_at FROM dao_trait_rewards ORDER BY created_at ASC'
+      `SELECT dtr.id, dtr.collection_id, c.name AS collection_name,
+              dtr.trait_type, dtr.trait_value, dtr.token_address, dtr.token_symbol,
+              dtr.token_decimals, dtr.multiplier, dtr.is_active, dtr.created_at, dtr.updated_at
+       FROM dao_trait_rewards dtr
+       JOIN collections c ON c.id = dtr.collection_id
+       ORDER BY dtr.created_at ASC`
     );
     return res.json({ success: true, data: result.rows });
   } catch (e) { return res.status(500).json({ success: false, message: 'Failed to fetch DAO trait rewards' }); }
@@ -316,7 +321,13 @@ router.get('/analytics/dashboard', verifyJWT, verifyDaoAdmin, async (req, res) =
   try {
     const pool = getPool();
     const [stakers, rewards, admins] = await Promise.all([
-      pool.query('SELECT COUNT(DISTINCT owner_wallet) AS total FROM staked_nfts WHERE dao_last_claim_timestamp IS NOT NULL'),
+      // Count distinct wallets that have at least one staked NFT matching an active DAO trait reward
+      pool.query(`
+        SELECT COUNT(DISTINCT sn.owner_wallet) AS total
+        FROM staked_nfts sn
+        JOIN dao_trait_rewards dtr ON dtr.collection_id = sn.collection_id AND dtr.is_active = TRUE
+        WHERE sn.owner_wallet IS NOT NULL
+      `),
       pool.query("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE transaction_type='DAO_CLAIM'"),
       pool.query('SELECT COUNT(*) AS total FROM dao_admins WHERE is_active=TRUE'),
     ]);
@@ -357,30 +368,78 @@ router.get('/analytics/airdrop-claims', verifyJWT, verifyDaoAdmin, async (req, r
 });
 
 // GET /rewards-breakdown
+// Returns per-token DAO emission rates grouped by collection — mirrors regular rewards breakdown
 router.get('/rewards-breakdown', verifyJWT, verifyDaoAdmin, async (req, res) => {
   try {
-    // FIX: earn from MAX(claim_start, dtr.created_at) to prevent backdating
-    const result = await getPool().query(
-      `SELECT sn.owner_wallet AS wallet_address, dtr.token_symbol, dtr.token_address,
-              SUM(dtr.multiplier *
-                GREATEST(0, EXTRACT(EPOCH FROM (NOW() - GREATEST(
-                  COALESCE(sn.dao_last_claim_timestamp, sn.stake_timestamp),
-                  COALESCE(dtr.created_at, '2000-01-01'::timestamptz)
-                ))) / 86400.0)
-              ) AS total_pending_dao_rewards
-       FROM staked_nfts sn JOIN dao_trait_rewards dtr ON dtr.is_active=TRUE AND dtr.collection_id=sn.collection_id
-       WHERE sn.owner_wallet IS NOT NULL
-       GROUP BY sn.owner_wallet, dtr.token_symbol, dtr.token_address
-       HAVING SUM(dtr.multiplier *
-                GREATEST(0, EXTRACT(EPOCH FROM (NOW() - GREATEST(
-                  COALESCE(sn.dao_last_claim_timestamp, sn.stake_timestamp),
-                  COALESCE(dtr.created_at, '2000-01-01'::timestamptz)
-                ))) / 86400.0)
-              ) > 0
-       ORDER BY sn.owner_wallet, dtr.token_symbol`
-    );
-    return res.json({ success: true, data: result.rows });
-  } catch (e) { return res.status(500).json({ success: false, message: 'Failed to fetch DAO rewards breakdown' }); }
+    const pool = getPool();
+
+    // Get all active DAO trait rewards with collection info and staked NFT counts
+    const result = await pool.query(`
+      SELECT
+        dtr.token_address,
+        dtr.token_symbol,
+        dtr.token_decimals,
+        c.id AS collection_id,
+        c.name AS collection_name,
+        dtr.trait_type,
+        dtr.trait_value,
+        dtr.multiplier,
+        COUNT(sn.id) AS matching_nft_count
+      FROM dao_trait_rewards dtr
+      JOIN collections c ON c.id = dtr.collection_id
+      LEFT JOIN staked_nfts sn ON sn.collection_id = dtr.collection_id
+        AND sn.traits::jsonb @> jsonb_build_array(
+          jsonb_build_object('trait_type', dtr.trait_type, 'value', dtr.trait_value)
+        )
+      WHERE dtr.is_active = TRUE
+      GROUP BY dtr.id, dtr.token_address, dtr.token_symbol, dtr.token_decimals,
+               c.id, c.name, dtr.trait_type, dtr.trait_value, dtr.multiplier
+      ORDER BY dtr.token_symbol, c.name
+    `);
+
+    // Group by token, then by collection+trait
+    const byToken = {};
+    for (const row of result.rows) {
+      const key = row.token_address;
+      if (!byToken[key]) {
+        byToken[key] = {
+          token_address: row.token_address,
+          token_symbol: row.token_symbol,
+          token_decimals: parseInt(row.token_decimals) || 9,
+          collections: [],
+          total_daily: 0,
+        };
+      }
+      const nftCount = parseInt(row.matching_nft_count) || 0;
+      const dailyRate = parseFloat(row.multiplier) * nftCount;
+      byToken[key].collections.push({
+        collection_id: row.collection_id,
+        collection_name: row.collection_name,
+        trait_type: row.trait_type,
+        trait_value: row.trait_value,
+        multiplier: parseFloat(row.multiplier),
+        matching_nft_count: nftCount,
+        daily: dailyRate,
+        weekly: dailyRate * 7,
+        monthly: dailyRate * 30,
+        yearly: dailyRate * 365,
+      });
+      byToken[key].total_daily += dailyRate;
+    }
+
+    // Add totals per token
+    const tokens = Object.values(byToken).map(t => ({
+      ...t,
+      total_weekly: t.total_daily * 7,
+      total_monthly: t.total_daily * 30,
+      total_yearly: t.total_daily * 365,
+    }));
+
+    return res.json({ success: true, data: tokens });
+  } catch (e) {
+    console.error('[dao-admin/rewards-breakdown]', e.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch DAO rewards breakdown' });
+  }
 });
 
 // GET /collections (needed by DAO admin UI dropdowns)
