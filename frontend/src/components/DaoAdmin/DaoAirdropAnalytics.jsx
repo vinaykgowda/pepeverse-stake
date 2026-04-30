@@ -26,10 +26,11 @@ const DaoAirdropAnalytics = () => {
       });
       if (!res.ok) throw new Error((await res.json()).message || 'Failed to load');
       const json = await res.json();
-      const data = json.data;
-      setClaims(data?.records || []);
-      if (data?.stats) setStats(data.stats);
-      if (data?.total != null) setTotal(data.total);
+      setClaims(json.data || []);
+      setTotal(json.pagination?.total || 0);
+      const rows = json.data || [];
+      const uniqueWallets = new Set(rows.map(r => r.wallet_address)).size;
+      setStats({ total_claims: json.pagination?.total || rows.length, unique_wallets: uniqueWallets, by_token: [] });
     } catch (err) {
       setError(err.message || 'Failed to load DAO airdrop analytics');
     } finally {
@@ -143,9 +144,9 @@ const DaoAirdropAnalytics = () => {
                     {claims.map((claim, idx) => (
                       <tr key={claim.id || idx} className="hover:bg-indigo-50">
                         <td className="px-6 py-4 text-sm font-mono text-gray-900">{claim.wallet_address}</td>
-                        <td className="px-6 py-4 text-sm font-semibold text-indigo-700">{claim.token_symbol || '—'}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900 text-right">{Number(claim.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
-                        <td className="px-6 py-4 text-sm text-gray-500">{formatDate(claim.timestamp)}</td>
+                        <td className="px-6 py-4 text-sm font-semibold text-indigo-700">{claim.token_address ? claim.token_address.slice(0, 8) + '…' : '—'}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900 text-right">{Number(claim.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+                        <td className="px-6 py-4 text-sm text-gray-500">{formatDate(claim.created_at)}</td>
                         <td className="px-6 py-4 text-sm">
                           {claim.transaction_hash ? (
                             <a href={`https://explorer.solana.com/tx/${claim.transaction_hash}`}
