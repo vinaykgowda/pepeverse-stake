@@ -353,10 +353,18 @@ router.post('/dao-airdrop-claim', async (req, res) => {
 
       const signature = await sendTransaction(instructions, daoKeypair);
 
-      await client.query(
-        "INSERT INTO transactions (wallet_address, collection_id, transaction_type, amount, token_symbol, token_address, status, transaction_hash) VALUES ($1,$2,'DAO_AIRDROP_CLAIM',$3,$4,$5,'CONFIRMED',$6)",
-        [wallet_address, s.collection_id, tokenAmount, s.token_symbol, s.token_address, signature]
-      );
+      // Record transaction — only use columns that exist in the transactions table
+      try {
+        await client.query(
+          "INSERT INTO transactions (wallet_address, transaction_type, amount, token_address, status, transaction_hash) VALUES ($1,'DAO_AIRDROP_CLAIM',$2,$3,'CONFIRMED',$4)",
+          [wallet_address, tokenAmount, s.token_address, signature]
+        );
+      } catch (txErr) {
+        // Non-fatal — log but don't rollback since transfer already succeeded
+        console.error('[dao-airdrop-claim] transaction record failed (non-fatal):', txErr.message);
+      }
+
+      // Mark snapshot as claimed — this MUST succeed
       await client.query('UPDATE dao_airdrop_snapshots SET is_claimed=true, claimed_at=NOW(), claim_tx_hash=$1 WHERE id=$2', [signature, s.id]);
       await client.query('COMMIT');
       return res.json({ success: true, data: { signature } });
