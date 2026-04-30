@@ -150,7 +150,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
     try {
       const res = await api.daoUser.getAirdropQuote({
         wallet_address: walletAddress,
-        dao_airdrop_config_id: airdrop.dao_airdrop_config_id,
+        dao_airdrop_snapshot_id: airdrop.id,
       });
       setDaoAirdropQuote({ ...res.data?.data, airdrop });
       setShowDaoAirdropModal(true);
@@ -170,7 +170,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
       }
       const res = await api.daoUser.claimAirdrop({
         wallet_address: walletAddress,
-        dao_airdrop_config_id: daoAirdropQuote.airdrop.dao_airdrop_config_id,
+        dao_airdrop_snapshot_id: daoAirdropQuote.airdrop.id,
         payment_signature: paymentSignature,
       });
       setDaoAirdropSuccess({
@@ -181,7 +181,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
       setShowDaoAirdropModal(false);
       setDaoAirdropQuote(null);
       setDaoAirdrops(prev =>
-        prev.filter(a => a.dao_airdrop_config_id !== daoAirdropQuote.airdrop.dao_airdrop_config_id)
+        prev.filter(a => a.id !== daoAirdropQuote.airdrop.id)
       );
     } catch (e) {
       const s = e.response?.status;
