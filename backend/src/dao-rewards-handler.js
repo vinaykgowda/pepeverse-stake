@@ -445,9 +445,23 @@ async function claimDaoRewards(walletAddress, paymentSignature = null) {
       };
     }
 
-    // Update dao_last_claim_timestamp on all staked NFTs for this wallet (Requirement 4.3, 1.3)
+    // Update dao_last_claim_timestamp ONLY on NFTs that actually have matching DAO traits
+    // Never touch last_claim_timestamp (regular staking) or NFTs without DAO traits
     const updateResult = await dbConnection.query(
-      'UPDATE staked_nfts SET dao_last_claim_timestamp = NOW() WHERE owner_wallet = $1',
+      `UPDATE staked_nfts SET dao_last_claim_timestamp = NOW()
+       WHERE owner_wallet = $1
+         AND EXISTS (
+           SELECT 1 FROM dao_trait_rewards dtr
+           WHERE dtr.is_active = TRUE
+             AND dtr.collection_id = staked_nfts.collection_id
+             AND staked_nfts.traits IS NOT NULL
+             AND staked_nfts.traits::text != 'null'
+             AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements(staked_nfts.traits::jsonb) t
+               WHERE (t->>'trait_type') ILIKE dtr.trait_type
+                 AND (t->>'value') ILIKE dtr.trait_value
+             )
+         )`,
       [walletAddress]
     );
 
