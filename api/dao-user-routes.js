@@ -156,7 +156,12 @@ router.get('/dao-eligible-nfts', async (req, res) => {
     const pool = getPool();
     const [stakedResult, daoTraitRes] = await Promise.all([
       pool.query(
-        'SELECT id, mint_address, collection_id, stake_timestamp, dao_last_claim_timestamp, traits FROM staked_nfts WHERE owner_wallet = $1',
+        `SELECT sn.id, sn.mint_address, sn.collection_id, sn.stake_timestamp,
+                sn.dao_last_claim_timestamp, sn.traits,
+                c.name AS collection_name
+         FROM staked_nfts sn
+         JOIN collections c ON c.id = sn.collection_id
+         WHERE sn.owner_wallet = $1`,
         [wallet_address]
       ),
       pool.query(
@@ -225,6 +230,7 @@ router.get('/dao-eligible-nfts', async (req, res) => {
         mint_address: nft.mint_address,
         name: meta.name || null,
         image: meta.image || null,
+        collection_name: nft.collection_name || null,
         dao_earnings: earnings,
       };
     });
