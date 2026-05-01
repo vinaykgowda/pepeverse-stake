@@ -24,8 +24,7 @@ async function calculateDaoRewards(walletAddress) {
     // Query staked NFTs for this wallet
     const stakedResult = await pool.query(
       `SELECT s.id, s.mint_address, s.collection_id, s.stake_timestamp,
-              s.dao_last_claim_timestamp, s.traits,
-              EXTRACT(EPOCH FROM (NOW() - COALESCE(s.dao_last_claim_timestamp, s.stake_timestamp))) AS seconds_since_dao_claim
+              s.dao_last_claim_timestamp, s.traits
        FROM staked_nfts s
        WHERE s.owner_wallet = $1`,
       [walletAddress]
@@ -41,7 +40,8 @@ async function calculateDaoRewards(walletAddress) {
     // Query all active DAO trait rewards for the collections this wallet has staked in
     const daoTraitRewardsResult = await pool.query(
       `SELECT dtr.collection_id, dtr.trait_type, dtr.trait_value,
-              dtr.token_address, dtr.token_symbol, dtr.token_decimals, dtr.multiplier
+              dtr.token_address, dtr.token_symbol, dtr.token_decimals, dtr.multiplier,
+              COALESCE(dtr.created_at, '2000-01-01'::timestamptz) AS created_at
        FROM dao_trait_rewards dtr
        WHERE dtr.is_active = TRUE
          AND dtr.collection_id IN (SELECT DISTINCT collection_id FROM staked_nfts WHERE owner_wallet = $1)`,
@@ -59,15 +59,10 @@ async function calculateDaoRewards(walletAddress) {
 
     for (const nft of stakedNFTs) {
       try {
-        const secondsSinceDaoClaim = parseInt(nft.seconds_since_dao_claim) || 0;
-
-        // Minimum 60-second window (Requirement 4.1)
-        if (secondsSinceDaoClaim < 60) {
-          console.log(`⏰ [DAO-REWARDS] NFT ${nft.mint_address}: DAO claim within last 60s, skipping`);
-          continue;
-        }
-
-        const daysSinceDaoClaim = secondsSinceDaoClaim / 86400;
+        // The base start time: when the user last claimed DAO rewards (or when they staked)
+        const claimStart = nft.dao_last_claim_timestamp
+          ? new Date(nft.dao_last_claim_timestamp).getTime()
+          : new Date(nft.stake_timestamp).getTime();
 
         // Parse traits
         let traits = [];
@@ -81,7 +76,7 @@ async function calculateDaoRewards(walletAddress) {
 
         // Match against DAO trait rewards for this NFT's collection
         const nftDaoTraitRewards = allDaoTraitRewards.filter(
-          dtr => dtr.collection_id === nft.collection_id
+          dtr => String(dtr.collection_id) === String(nft.collection_id)
         );
 
         for (const dtr of nftDaoTraitRewards) {
@@ -96,8 +91,20 @@ async function calculateDaoRewards(walletAddress) {
 
           if (!hasMatch) continue;
 
-          const daoReward = parseFloat(dtr.multiplier) * daysSinceDaoClaim;
-          console.log(`🎲 [DAO-REWARDS] NFT ${nft.mint_address}: trait ${dtr.trait_type}:${dtr.trait_value} → ${daoReward} ${dtr.token_symbol}`);
+          // FIX: earn from MAX(claimStart, dtr.created_at) — never before the trait reward existed
+          const traitCreated = new Date(dtr.created_at).getTime();
+          const earnStart = Math.max(claimStart, traitCreated);
+          const secondsEarning = Math.max(0, (Date.now() - earnStart) / 1000);
+
+          // Minimum 60-second window
+          if (secondsEarning < 60) {
+            console.log(`⏰ [DAO-REWARDS] NFT ${nft.mint_address}: DAO earn window < 60s, skipping`);
+            continue;
+          }
+
+          const daysEarning = secondsEarning / 86400;
+          const daoReward = parseFloat(dtr.multiplier) * daysEarning;
+          console.log(`🎲 [DAO-REWARDS] NFT ${nft.mint_address}: trait ${dtr.trait_type}:${dtr.trait_value} → ${daoReward} ${dtr.token_symbol} (${daysEarning.toFixed(4)} days)`);
 
           if (daoReward > 0.000001) {
             const tokenKey = `${dtr.token_address}-${dtr.token_symbol}`;
