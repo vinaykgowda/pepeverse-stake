@@ -474,7 +474,14 @@ router.get('/analytics/claims', verifyJWT, verifyDaoAdmin, async (req, res) => {
     const offset = parseInt(req.query.offset) || 0;
     const pool = getPool();
     const [data, count] = await Promise.all([
-      pool.query("SELECT id,wallet_address,transaction_type,amount,token_address,created_at FROM transactions WHERE transaction_type='DAO_CLAIM' ORDER BY created_at DESC LIMIT $1 OFFSET $2", [limit, offset]),
+      pool.query(`
+        SELECT t.id, t.wallet_address, t.transaction_type, t.amount, t.token_address,
+               COALESCE(dtr.token_symbol, t.token_address) AS token_symbol,
+               t.transaction_hash, t.created_at
+        FROM transactions t
+        LEFT JOIN dao_trait_rewards dtr ON dtr.token_address = t.token_address AND dtr.is_active = TRUE
+        WHERE t.transaction_type = 'DAO_CLAIM'
+        ORDER BY t.created_at DESC LIMIT $1 OFFSET $2`, [limit, offset]),
       pool.query("SELECT COUNT(*) AS total FROM transactions WHERE transaction_type='DAO_CLAIM'"),
     ]);
     return res.json({ success: true, data: data.rows, pagination: { total: parseInt(count.rows[0].total), limit, offset } });
@@ -488,7 +495,14 @@ router.get('/analytics/airdrop-claims', verifyJWT, verifyDaoAdmin, async (req, r
     const offset = parseInt(req.query.offset) || 0;
     const pool = getPool();
     const [data, count] = await Promise.all([
-      pool.query("SELECT id,wallet_address,transaction_type,amount,token_address,created_at FROM transactions WHERE transaction_type='DAO_AIRDROP_CLAIM' ORDER BY created_at DESC LIMIT $1 OFFSET $2", [limit, offset]),
+      pool.query(`
+        SELECT t.id, t.wallet_address, t.transaction_type, t.amount, t.token_address,
+               COALESCE(dtr.token_symbol, t.token_address) AS token_symbol,
+               t.transaction_hash, t.created_at
+        FROM transactions t
+        LEFT JOIN dao_trait_rewards dtr ON dtr.token_address = t.token_address AND dtr.is_active = TRUE
+        WHERE t.transaction_type = 'DAO_AIRDROP_CLAIM'
+        ORDER BY t.created_at DESC LIMIT $1 OFFSET $2`, [limit, offset]),
       pool.query("SELECT COUNT(*) AS total FROM transactions WHERE transaction_type='DAO_AIRDROP_CLAIM'"),
     ]);
     return res.json({ success: true, data: data.rows, pagination: { total: parseInt(count.rows[0].total), limit, offset } });

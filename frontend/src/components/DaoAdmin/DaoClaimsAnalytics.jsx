@@ -145,7 +145,7 @@ const DaoClaimsAnalytics = () => {
                     {claims.map((claim, idx) => (
                       <tr key={claim.id || idx} className="hover:bg-indigo-50">
                         <td className="px-6 py-4 text-sm font-mono text-gray-900">{claim.wallet_address}</td>
-                        <td className="px-6 py-4 text-sm font-semibold text-indigo-700">{claim.token_address ? claim.token_address.slice(0, 8) + '…' : '—'}</td>
+                        <td className="px-6 py-4 text-sm font-semibold text-indigo-700">{claim.token_symbol || claim.token_address?.slice(0, 8) + '…' || '—'}</td>
                         <td className="px-6 py-4 text-sm text-gray-900 text-right">{Number(claim.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                         <td className="px-6 py-4 text-sm text-gray-500">{formatDate(claim.created_at)}</td>
                         <td className="px-6 py-4 text-sm">
