@@ -800,20 +800,24 @@ async function getClaimQuote(walletAddress) {
       const tokenAmount = BigInt(Math.floor(reward.amount * Math.pow(10, reward.token_decimals || 9)));
       if (tokenAmount <= 0n) continue;
       try {
-        const ata = await getATA(new SolPK(reward.token_address), walletPK);
+        // Sum ALL token accounts for this mint (not just primary ATA)
+        // Handles cases where tokens are in non-ATA accounts
+        const tokenAccounts = await conn.getTokenAccountsByOwner(walletPK, {
+          mint: new SolPK(reward.token_address)
+        });
         let balance = 0n;
-        try {
-          const acct = await getAcct(conn, ata);
-          balance = BigInt(acct.amount);
-        } catch {
-          balance = 0n; // token account doesn't exist
+        for (const { account } of tokenAccounts.value) {
+          try {
+            const parsed = account.data.parsed?.info?.tokenAmount?.amount;
+            if (parsed) balance += BigInt(parsed);
+          } catch {}
         }
         if (balance < tokenAmount) {
           insufficient.push(`${reward.token_symbol} (have: ${(Number(balance) / Math.pow(10, reward.token_decimals || 9)).toFixed(2)}, need: ${reward.amount.toFixed(2)})`);
         }
       } catch (e) {
         console.warn(`[QUOTE] Balance check error for ${reward.token_symbol}:`, e.message);
-        insufficient.push(`${reward.token_symbol} (balance check failed)`);
+        // Don't block claim on balance check failure — let the transfer attempt
       }
     }
 
