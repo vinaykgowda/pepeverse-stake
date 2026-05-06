@@ -791,8 +791,13 @@ async function getClaimQuote(walletAddress) {
     // PRE-FLIGHT: Check treasury balances — block claim if insufficient
     let treasuryWarning = null;
     const { Connection: SolConn, PublicKey: SolPK } = require('@solana/web3.js');
-    const { getAssociatedTokenAddress: getATA, getAccount: getAcct } = require('@solana/spl-token');
-    const conn = new SolConn(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
+    // Use Helius endpoint for balance check (avoids 429 on public RPC)
+    const heliusEndpoint = process.env.HELIUS_MAINNET_ENDPOINT;
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    const rpcUrl = heliusEndpoint
+      ? (heliusEndpoint.includes('?api-key=') ? heliusEndpoint : `${heliusEndpoint.replace(/\/$/, '')}/?api-key=${heliusApiKey}`)
+      : (process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+    const conn = new SolConn(rpcUrl, 'confirmed');
     const walletPK = new SolPK(feeRecipient);
     const insufficient = [];
 
