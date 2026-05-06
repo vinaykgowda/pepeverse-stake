@@ -800,16 +800,15 @@ async function getClaimQuote(walletAddress) {
       const tokenAmount = BigInt(Math.floor(reward.amount * Math.pow(10, reward.token_decimals || 9)));
       if (tokenAmount <= 0n) continue;
       try {
-        // Sum ALL token accounts for this mint (not just primary ATA)
-        // Handles cases where tokens are in non-ATA accounts
-        const tokenAccounts = await conn.getTokenAccountsByOwner(walletPK, {
+        // Use getParsedTokenAccountsByOwner to sum ALL token accounts for this mint
+        const tokenAccounts = await conn.getParsedTokenAccountsByOwner(walletPK, {
           mint: new SolPK(reward.token_address)
         });
         let balance = 0n;
         for (const { account } of tokenAccounts.value) {
           try {
-            const parsed = account.data.parsed?.info?.tokenAmount?.amount;
-            if (parsed) balance += BigInt(parsed);
+            const amount = account.data?.parsed?.info?.tokenAmount?.amount;
+            if (amount) balance += BigInt(amount);
           } catch {}
         }
         if (balance < tokenAmount) {
