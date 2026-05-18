@@ -27,10 +27,12 @@ function calcDaoRewardsForNft(nft, daoTraitRewards) {
   let traits = [];
   try { traits = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : []; } catch {}
 
-  // The base start time: when the user last claimed DAO rewards (or when they staked)
+  // For first-time DAO claimers: start from dtr.created_at only
+  // For repeat claimers: start from MAX(dao_last_claim_timestamp, dtr.created_at)
+  // Never use stake_timestamp — it predates the DAO reward system
   const claimStart = nft.dao_last_claim_timestamp
     ? new Date(nft.dao_last_claim_timestamp).getTime()
-    : new Date(nft.stake_timestamp).getTime();
+    : null; // null means "use dtr.created_at for each trait"
 
   const earnings = [];
 
@@ -44,9 +46,10 @@ function calcDaoRewardsForNft(nft, daoTraitRewards) {
     });
     if (!match) continue;
 
-    // FIX: earn from MAX(claimStart, dtr.created_at) — never before the trait reward existed
+    // For first-time claimers, earn from dtr.created_at only
+    // For repeat claimers, earn from MAX(dao_last_claim_timestamp, dtr.created_at)
     const traitCreated = dtr.created_at ? new Date(dtr.created_at).getTime() : 0;
-    const earnStart = Math.max(claimStart, traitCreated);
+    const earnStart = claimStart !== null ? Math.max(claimStart, traitCreated) : traitCreated;
     const secondsEarning = Math.max(0, (now - earnStart) / 1000);
 
     // Enforce 60-second minimum window
