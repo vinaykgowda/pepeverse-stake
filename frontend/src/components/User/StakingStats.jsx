@@ -84,9 +84,10 @@ const StakingStats = ({ walletNFTs = [] }) => {
   const checkDaoEarnings = useCallback(async () => {
     if (!wallet?.adapter?.publicKey) return;
     try {
-      const res = await api.daoUser.getRewards(wallet.adapter.publicKey.toString());
-      const daoRewards = res.data?.data || [];
-      setHasDaoEarnings(daoRewards.some(r => parseFloat(r.amount) > 0));
+      // Call dao-eligible-nfts which also seeds dao_last_claim_timestamp for new matches
+      const res = await api.daoUser.getEligibleNFTs(wallet.adapter.publicKey.toString());
+      const eligible = res.data?.data || [];
+      setHasDaoEarnings(eligible.length > 0);
     } catch (e) { /* non-critical — DAO section stays hidden on error */ }
   }, [wallet]);
 
