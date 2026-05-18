@@ -27,12 +27,12 @@ function calcDaoRewardsForNft(nft, daoTraitRewards) {
   let traits = [];
   try { traits = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : []; } catch {}
 
-  // For first-time DAO claimers: start from dtr.created_at only
-  // For repeat claimers: start from MAX(dao_last_claim_timestamp, dtr.created_at)
-  // Never use stake_timestamp — it predates the DAO reward system
-  const claimStart = nft.dao_last_claim_timestamp
-    ? new Date(nft.dao_last_claim_timestamp).getTime()
-    : null; // null means "use dtr.created_at for each trait"
+  // If dao_last_claim_timestamp is NULL, this NFT hasn't been seeded yet — skip it.
+  // Rewards only accrue AFTER seeding (done in dao-eligible-nfts endpoint).
+  if (!nft.dao_last_claim_timestamp) {
+    return [];
+  }
+  const claimStart = new Date(nft.dao_last_claim_timestamp).getTime();
 
   const earnings = [];
 
@@ -46,11 +46,8 @@ function calcDaoRewardsForNft(nft, daoTraitRewards) {
     });
     if (!match) continue;
 
-    // For first-time claimers, earn from dtr.created_at only
-    // For repeat claimers, earn from MAX(dao_last_claim_timestamp, dtr.created_at)
-    const traitCreated = dtr.created_at ? new Date(dtr.created_at).getTime() : 0;
-    const earnStart = claimStart !== null ? Math.max(claimStart, traitCreated) : traitCreated;
-    const secondsEarning = Math.max(0, (now - earnStart) / 1000);
+    // Earn from dao_last_claim_timestamp (seeded when trait was first detected)
+    const secondsEarning = Math.max(0, (now - claimStart) / 1000);
 
     // Enforce 60-second minimum window
     if (secondsEarning < 60) continue;
@@ -174,13 +171,51 @@ router.get('/dao-eligible-nfts', async (req, res) => {
 
     if (stakedResult.rows.length === 0) return res.json({ success: true, data: [] });
 
-    // First pass: find eligible NFTs
+    // First pass: find eligible NFTs (match trait regardless of seeding status)
     const eligiblePairs = [];
     for (const nft of stakedResult.rows) {
-      const earnings = calcDaoRewardsForNft(nft, daoTraitRes.rows);
-      if (earnings.length > 0) eligiblePairs.push({ nft, earnings });
+      let traits = [];
+      try { traits = nft.traits ? (Array.isArray(nft.traits) ? nft.traits : JSON.parse(nft.traits)) : []; } catch {}
+      
+      // Check if any DAO trait reward matches this NFT
+      const matchingTraits = daoTraitRes.rows.filter(dtr => {
+        if (String(dtr.collection_id) !== String(nft.collection_id)) return false;
+        return traits.some(t => {
+          const tType = String(t.trait_type ?? t.type ?? '').toLowerCase();
+          const tVal = String(t.value ?? t.trait_value ?? '').toLowerCase();
+          return tType === String(dtr.trait_type).toLowerCase() && tVal === String(dtr.trait_value).toLowerCase();
+        });
+      });
+      
+      if (matchingTraits.length > 0) {
+        const earnings = matchingTraits.map(dtr => ({
+          trait_type: dtr.trait_type,
+          trait_value: dtr.trait_value,
+          token_address: dtr.token_address,
+          token_symbol: dtr.token_symbol,
+          token_decimals: parseInt(dtr.token_decimals) || 9,
+          daily_rate: parseFloat(dtr.multiplier),
+          pending_amount: 0, // Will be calculated from dao_last_claim_timestamp after seeding
+        }));
+        eligiblePairs.push({ nft, earnings });
+      }
     }
     if (eligiblePairs.length === 0) return res.json({ success: true, data: [] });
+
+    // SEEDING: For NFTs that match a DAO trait but have dao_last_claim_timestamp=NULL,
+    // set it to NOW(). This is when the system first detects the trait match.
+    // Rewards will only accrue from this point forward.
+    const unseededMints = eligiblePairs
+      .filter(({ nft }) => !nft.dao_last_claim_timestamp)
+      .map(({ nft }) => nft.mint_address);
+    if (unseededMints.length > 0) {
+      await pool.query(
+        `UPDATE staked_nfts SET dao_last_claim_timestamp = NOW()
+         WHERE mint_address = ANY($1) AND dao_last_claim_timestamp IS NULL`,
+        [unseededMints]
+      );
+      console.log(`[dao-eligible-nfts] Seeded dao_last_claim_timestamp for ${unseededMints.length} NFTs`);
+    }
 
     // Fetch metadata from Helius for eligible NFTs (small batch — typically 1-5 NFTs)
     const metadataMap = {};

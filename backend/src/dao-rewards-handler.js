@@ -59,12 +59,12 @@ async function calculateDaoRewards(walletAddress) {
 
     for (const nft of stakedNFTs) {
       try {
-        // For first-time DAO claimers: start from dtr.created_at (when the reward rule was created)
-        // For repeat claimers: start from dao_last_claim_timestamp
-        // Never use stake_timestamp — it predates the DAO reward system
-        const claimStart = nft.dao_last_claim_timestamp
-          ? new Date(nft.dao_last_claim_timestamp).getTime()
-          : null; // null means "use dtr.created_at for each trait"
+        // If dao_last_claim_timestamp is NULL, this NFT hasn't been seeded yet.
+        // Skip it — rewards only accrue AFTER the seeding (done in dao-eligible-nfts endpoint).
+        if (!nft.dao_last_claim_timestamp) {
+          continue;
+        }
+        const claimStart = new Date(nft.dao_last_claim_timestamp).getTime();
 
         // Parse traits
         let traits = [];
@@ -93,11 +93,8 @@ async function calculateDaoRewards(walletAddress) {
 
           if (!hasMatch) continue;
 
-          // FIX: For first-time claimers, earn from dtr.created_at only
-          // For repeat claimers, earn from MAX(dao_last_claim_timestamp, dtr.created_at)
-          const traitCreated = new Date(dtr.created_at).getTime();
-          const earnStart = claimStart !== null ? Math.max(claimStart, traitCreated) : traitCreated;
-          const secondsEarning = Math.max(0, (Date.now() - earnStart) / 1000);
+          // Earn from dao_last_claim_timestamp (seeded when trait was first detected)
+          const secondsEarning = Math.max(0, (Date.now() - claimStart) / 1000);
 
           // Minimum 60-second window
           if (secondsEarning < 60) {
