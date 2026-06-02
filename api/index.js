@@ -534,6 +534,7 @@ stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
     if (result.rows.length === 0) return res.json({ success: true, updated: 0 });
 
     let updated = 0;
+    let removed = 0;
     for (const nft of result.rows) {
       try {
         const response = await axios.post(url, {
@@ -542,6 +543,16 @@ stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
         }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
 
         const asset = response.data?.result;
+
+        // Ownership check: if NFT was transferred out, remove the staked record
+        const currentOwner = asset?.ownership?.owner;
+        if (currentOwner && currentOwner !== req.user.walletAddress) {
+          console.log(`[refresh-traits] NFT ${nft.mint_address} no longer owned by wallet, removing`);
+          await pool.query('DELETE FROM staked_nfts WHERE id = $1', [nft.id]);
+          removed++;
+          continue;
+        }
+
         const attributes = asset?.content?.metadata?.attributes || [];
         if (attributes.length > 0) {
           await pool.query('UPDATE staked_nfts SET traits = $1 WHERE id = $2', [JSON.stringify(attributes), nft.id]);
@@ -551,7 +562,7 @@ stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
         console.error(`[refresh-traits] Failed for ${nft.mint_address}:`, e.message);
       }
     }
-    return res.json({ success: true, updated });
+    return res.json({ success: true, updated, removed });
   } catch (e) { console.error('[nfts/refresh-traits]', e.message); res.status(500).json({ success: false, message: 'Failed to refresh traits' }); }
 });
 
