@@ -571,16 +571,30 @@ stakingRouter.post('/nfts/stake', verifyJWT, async (req, res) => {
     for (const nft of nfts) {
       const { mintAddress, traits } = nft;
       if (!mintAddress) continue;
-      // Check not already staked
-      const existing = await pool.query('SELECT id FROM staked_nfts WHERE mint_address = $1', [mintAddress]);
-      if (existing.rows.length > 0) continue;
+      // Check if already staked
+      const existing = await pool.query('SELECT id, owner_wallet FROM staked_nfts WHERE mint_address = $1', [mintAddress]);
       const traitsJson = traits ? JSON.stringify(traits) : null;
-      await pool.query(
-        `INSERT INTO staked_nfts (mint_address, owner_wallet, collection_id, stake_timestamp, traits)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [mintAddress, req.user.walletAddress, collectionId, stakedAt, traitsJson]
-      );
-      inserted.push(mintAddress);
+      if (existing.rows.length > 0) {
+        // If same owner, skip — already staked by this wallet
+        if (existing.rows[0].owner_wallet === req.user.walletAddress) continue;
+        // Different owner — NFT was transferred, re-stake for new owner with fresh earnings
+        await pool.query(
+          `UPDATE staked_nfts
+           SET owner_wallet = $1, stake_timestamp = NOW(), last_claim_timestamp = NOW(),
+               dao_last_claim_timestamp = NULL, traits = COALESCE($2, traits)
+           WHERE mint_address = $3`,
+          [req.user.walletAddress, traitsJson, mintAddress]
+        );
+        inserted.push(mintAddress);
+      } else {
+        // New stake
+        await pool.query(
+          `INSERT INTO staked_nfts (mint_address, owner_wallet, collection_id, stake_timestamp, traits)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [mintAddress, req.user.walletAddress, collectionId, stakedAt, traitsJson]
+        );
+        inserted.push(mintAddress);
+      }
     }
     return res.json({ success: true, message: `Staked ${inserted.length} NFTs`, data: { staked: inserted } });
   } catch (e) { console.error('[nfts/stake]', e.message); res.status(500).json({ success: false, message: 'Failed to stake NFTs' }); }
