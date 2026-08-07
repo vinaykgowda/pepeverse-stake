@@ -533,16 +533,41 @@ stakingRouter.post('/nfts/refresh-traits', verifyJWT, async (req, res) => {
     );
     if (result.rows.length === 0) return res.json({ success: true, updated: 0 });
 
+    // Batch fetch all assets using getAssetBatch (max 1000 per request)
+    const mintAddresses = result.rows.map(nft => nft.mint_address);
+    const BATCH_SIZE = 1000;
+    const allAssets = [];
+
+    for (let i = 0; i < mintAddresses.length; i += BATCH_SIZE) {
+      const chunk = mintAddresses.slice(i, i + BATCH_SIZE);
+      try {
+        const response = await axios.post(url, {
+          jsonrpc: '2.0', id: 'get-asset-batch', method: 'getAssetBatch',
+          params: { ids: chunk }
+        }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+        const assets = response.data?.result || [];
+        allAssets.push(...assets);
+      } catch (e) {
+        console.error(`[refresh-traits] Batch fetch failed for chunk starting at index ${i}:`, e.message);
+        // Push nulls for this chunk so indices stay aligned
+        allAssets.push(...new Array(chunk.length).fill(null));
+      }
+    }
+
+    // Build a map from mint_address → asset data
+    const assetMap = {};
+    for (let i = 0; i < mintAddresses.length; i++) {
+      if (allAssets[i]) {
+        assetMap[mintAddresses[i]] = allAssets[i];
+      }
+    }
+
     let updated = 0;
     let removed = 0;
     for (const nft of result.rows) {
       try {
-        const response = await axios.post(url, {
-          jsonrpc: '2.0', id: 'get-asset', method: 'getAsset',
-          params: { id: nft.mint_address }
-        }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
-
-        const asset = response.data?.result;
+        const asset = assetMap[nft.mint_address];
+        if (!asset) continue;
 
         // Ownership check: if NFT was transferred out, remove the staked record
         const currentOwner = asset?.ownership?.owner;
