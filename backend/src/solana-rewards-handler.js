@@ -19,12 +19,14 @@ function safeParseJSONLegacy(jsonString, defaultValue = []) {
 
 // OPTIMIZED calculateRewards function using single aggregated query
 // Requirements: 18.1, 18.2, 18.3 - Single query, no N+1 problem, < 500ms for 100 NFTs
-async function calculateRewards(walletAddress) {
+// SECURITY FIX: Accepts optional dbClient to run within the same transaction (prevents race conditions)
+async function calculateRewards(walletAddress, dbClient = null) {
+  const queryFn = dbClient || pool;
   try {
     console.log(`🔄 [REWARDS] Calculating rewards for wallet: ${walletAddress}`);
 
     // Query 1: base collection rewards per NFT
-    const baseResult = await pool.query(
+    const baseResult = await queryFn.query(
       `SELECT 
         s.id, s.mint_address, s.collection_id, s.stake_timestamp, s.last_claim_timestamp, s.traits,
         c.name as collection_name,
@@ -38,9 +40,11 @@ async function calculateRewards(walletAddress) {
     );
 
     // Query 2: ALL active trait rewards for the collections the user has staked in
-    const traitRewardsResult = await pool.query(
+    // SECURITY FIX: Include created_at to properly cap trait reward start time
+    const traitRewardsResult = await queryFn.query(
       `SELECT tr.collection_id, tr.trait_type, tr.trait_value, tr.multiplier,
-              tr.token_address, tr.token_symbol, tr.token_decimals
+              tr.token_address, tr.token_symbol, tr.token_decimals,
+              COALESCE(tr.created_at, '2000-01-01'::timestamptz) as created_at
        FROM trait_rewards tr
        WHERE tr.is_active = TRUE
          AND tr.collection_id IN (SELECT DISTINCT collection_id FROM staked_nfts WHERE owner_wallet = $1)`,
@@ -75,6 +79,7 @@ async function calculateRewards(walletAddress) {
 
     // Calculate rewards for each NFT and token
     const rewardsByToken = {};
+    const now = Date.now();
 
     for (const nft of nftsWithRewards) {
       try {
@@ -111,6 +116,11 @@ async function calculateRewards(walletAddress) {
         }
 
         // Trait rewards — each matching trait adds its own token reward
+        // SECURITY FIX: Use MAX(lastClaim, trait.created_at) to prevent backdating
+        const lastClaimTime = nft.last_claim_timestamp
+          ? new Date(nft.last_claim_timestamp).getTime()
+          : new Date(nft.stake_timestamp).getTime();
+
         const nftTraitRewards = allTraitRewards.filter(tr => tr.collection_id === nft.collection_id);
         for (const tr of nftTraitRewards) {
           const hasMatch = traits.some(t => {
@@ -120,8 +130,16 @@ async function calculateRewards(walletAddress) {
           });
           if (!hasMatch) continue;
 
-          const traitReward = parseFloat(tr.multiplier) * daysSinceLastClaim;
-          console.log(`🎲 [REWARDS] NFT ${nft.mint_address}: trait ${tr.trait_type}:${tr.trait_value} → ${traitReward} ${tr.token_symbol}`);
+          // SECURITY FIX: Start earning from whichever is later — last claim OR trait reward creation
+          const traitCreatedTime = new Date(tr.created_at).getTime();
+          const traitStart = Math.max(lastClaimTime, traitCreatedTime);
+          const traitSeconds = Math.max(0, (now - traitStart) / 1000);
+
+          if (traitSeconds < 60) continue;
+
+          const traitDays = traitSeconds / 86400;
+          const traitReward = parseFloat(tr.multiplier) * traitDays;
+          console.log(`🎲 [REWARDS] NFT ${nft.mint_address}: trait ${tr.trait_type}:${tr.trait_value} → ${traitReward.toFixed(6)} ${tr.token_symbol} (${traitDays.toFixed(2)} days)`);
 
           if (traitReward > 0.000001) {
             const traitKey = `${tr.token_address}-${tr.token_symbol}`;
@@ -156,7 +174,8 @@ async function calculateRewards(walletAddress) {
   }
 }
 
-// FIXED claimRewardsWithPayment with better wallet address handling
+// SECURED claimRewardsWithPayment — CLAIM-BEFORE-SEND pattern
+// Fixes: Race condition, signature replay, trait backdating, non-atomic rollback
 async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
   let dbConnection;
 
@@ -164,45 +183,69 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     console.log(`🎯 [CLAIM] Starting claim with payment verification for: ${walletAddress}`);
 
     dbConnection = await pool.getClient();
-    
-    // Use database transaction with row-level locking to prevent race conditions
-    // This ensures concurrent claim requests are processed serially (Requirements 13.2, 13.5)
     await dbConnection.query('BEGIN');
 
-    // FIXED: Debug wallet address before any operations
-    console.log(`🔍 [CLAIM] Wallet address received: "${walletAddress}" (length: ${walletAddress.length})`);
+    // ═══════════════════════════════════════════════════════════════════
+    // SECURITY CHECK 1: Acquire wallet-level claim lock (prevents concurrent claims)
+    // Uses advisory lock keyed on wallet address hash for zero-contention mutex
+    // ═══════════════════════════════════════════════════════════════════
+    const lockKey = Buffer.from(walletAddress).reduce((acc, byte) => (acc * 31 + byte) & 0x7FFFFFFF, 0);
+    const lockResult = await dbConnection.query('SELECT pg_try_advisory_xact_lock($1) as acquired', [lockKey]);
+    
+    if (!lockResult.rows[0].acquired) {
+      await dbConnection.query('ROLLBACK');
+      console.warn(`⚠️ [CLAIM] Claim already in progress for wallet: ${walletAddress}`);
+      return {
+        success: false,
+        message: 'A claim is already being processed for this wallet. Please wait for it to complete.'
+      };
+    }
+    console.log(`🔒 [CLAIM] Advisory lock acquired for wallet: ${walletAddress}`);
 
-    // Get staked NFTs with their collection info, including claim fees
-    // Use FOR UPDATE to lock rows and prevent race conditions (Requirement 13.2, 13.5)
+    // ═══════════════════════════════════════════════════════════════════
+    // SECURITY CHECK 2: Verify payment signature hasn't been used before
+    // ═══════════════════════════════════════════════════════════════════
+    if (paymentSignature) {
+      const sigCheckResult = await dbConnection.query(
+        'SELECT id FROM used_payment_signatures WHERE signature = $1',
+        [paymentSignature]
+      );
+      if (sigCheckResult.rows.length > 0) {
+        await dbConnection.query('ROLLBACK');
+        console.error(`🚫 [CLAIM] REPLAY ATTACK BLOCKED — signature already used: ${paymentSignature}`);
+        return {
+          success: false,
+          message: 'This payment signature has already been used. Please initiate a new claim.'
+        };
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 1: Lock staked NFTs rows (FOR UPDATE prevents concurrent reads)
+    // ═══════════════════════════════════════════════════════════════════
     const stakedNFTsResult = await dbConnection.query(
       `SELECT s.id, s.mint_address, s.collection_id, s.owner_wallet,
               c.name as collection_name, c.claim_fee
        FROM staked_nfts s
        JOIN collections c ON s.collection_id = c.id
        WHERE s.owner_wallet = $1
-       FOR UPDATE`,
+       FOR UPDATE OF s`,
       [walletAddress]
     );
     
     const stakedNFTs = stakedNFTsResult.rows;
-
     console.log(`📊 [CLAIM] Found ${stakedNFTs.length} staked NFTs for wallet ${walletAddress}`);
-
-    // Debug: Log actual wallet addresses found
-    if (stakedNFTs.length > 0) {
-      console.log(`🔍 [CLAIM] Sample wallet address from staked NFTs: "${stakedNFTs[0].owner_wallet}"`);
-    }
 
     if (stakedNFTs.length === 0) {
       await dbConnection.query('ROLLBACK');
-      return {
-        success: false,
-        message: 'No staked NFTs found'
-      };
+      return { success: false, message: 'No staked NFTs found' };
     }
 
-    // Calculate rewards
-    const rewardsResult = await calculateRewards(walletAddress);
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 2: Calculate rewards WITHIN the locked transaction
+    // SECURITY FIX: Pass dbConnection so rewards calc uses same locked snapshot
+    // ═══════════════════════════════════════════════════════════════════
+    const rewardsResult = await calculateRewards(walletAddress, dbConnection);
 
     if (!rewardsResult.success) {
       await dbConnection.query('ROLLBACK');
@@ -213,50 +256,35 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
     if (rewards.length === 0) {
       await dbConnection.query('ROLLBACK');
-      return {
-        success: false,
-        message: 'No rewards available to claim'
-      };
+      return { success: false, message: 'No rewards available to claim' };
     }
 
     console.log(`💰 [CLAIM] Found ${rewards.length} different reward tokens to claim`);
 
-    // Get required settings
-    const rewardsWalletResult = await dbConnection.query(
-      'SELECT value FROM settings WHERE key_name = $1',
-      ['rewards_wallet']
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 3: Get required settings
+    // ═══════════════════════════════════════════════════════════════════
+    const settingsResult = await dbConnection.query(
+      `SELECT key_name, value FROM settings WHERE key_name IN ('rewards_wallet', 'rewards_wallet_encrypted_key', 'minimum_claim_amount')`
     );
+    const settings = {};
+    settingsResult.rows.forEach(r => { settings[r.key_name] = r.value; });
 
-    const encryptedKeyResult = await dbConnection.query(
-      'SELECT value FROM settings WHERE key_name = $1',
-      ['rewards_wallet_encrypted_key']
-    );
+    const rewardsWallet = settings['rewards_wallet'];
+    const encryptedKey = settings['rewards_wallet_encrypted_key'];
+    const minClaimAmount = parseFloat(settings['minimum_claim_amount'] || 0);
 
-    const minClaimResult = await dbConnection.query(
-      'SELECT value FROM settings WHERE key_name = $1',
-      ['minimum_claim_amount']
-    );
-
-    // Validate settings
-    if (rewardsWalletResult.rows.length === 0 || !rewardsWalletResult.rows[0].value) {
+    if (!rewardsWallet) {
       await dbConnection.query('ROLLBACK');
       throw new Error('Rewards wallet not configured in settings. Please contact administrator.');
     }
-
-    if (encryptedKeyResult.rows.length === 0 || !encryptedKeyResult.rows[0].value) {
+    if (!encryptedKey) {
       await dbConnection.query('ROLLBACK');
       throw new Error('Rewards wallet private key not configured. Please contact administrator.');
     }
 
-    const rewardsWallet = rewardsWalletResult.rows[0].value;
-    const encryptedKey = encryptedKeyResult.rows[0].value;
-    const minClaimAmount = parseFloat(minClaimResult.rows[0]?.value || 0);
-
-    console.log(`⚙️ [CLAIM] Settings loaded - Min claim: ${minClaimAmount}, Rewards wallet: ${rewardsWallet.substring(0, 8)}...`);
-
-    // Check if total rewards meet minimum claim amount
+    // Check minimum claim amount
     const totalRewardsValue = rewards.reduce((sum, reward) => sum + reward.amount, 0);
-
     if (totalRewardsValue < minClaimAmount) {
       await dbConnection.query('ROLLBACK');
       return {
@@ -265,7 +293,9 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
       };
     }
 
-    // Calculate claim fees
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 4: Calculate claim fees
+    // ═══════════════════════════════════════════════════════════════════
     const collectionMap = {};
     let totalClaimFee = 0;
 
@@ -281,14 +311,15 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
       collectionMap[nft.collection_id].nftCount++;
     });
 
-    // Calculate total claim fee - one fee per collection that has staked NFTs
     Object.values(collectionMap).forEach(collection => {
       totalClaimFee += collection.claim_fee;
     });
 
-    console.log(`💳 [CLAIM] Total claim fee: ${totalClaimFee} SOL across ${Object.keys(collectionMap).length} collections`);
+    console.log(`💳 [CLAIM] Total claim fee: ${totalClaimFee} SOL`);
 
-    // If claim fee is required, verify payment
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 5: Verify payment (if required)
+    // ═══════════════════════════════════════════════════════════════════
     if (totalClaimFee > 0) {
       if (!paymentSignature) {
         await dbConnection.query('ROLLBACK');
@@ -306,7 +337,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
         };
       }
 
-      // Verify the payment transaction
+      // Verify the payment transaction on-chain
       console.log(`💳 [CLAIM] Verifying payment signature: ${paymentSignature}`);
       const isValidPayment = await verifyClaimFeePayment(
         paymentSignature,
@@ -325,13 +356,17 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
 
       console.log(`✅ [CLAIM] Payment verified successfully`);
 
-      // Record claim fee transactions
+      // SECURITY: Mark payment signature as used IMMEDIATELY (before sending rewards)
+      await dbConnection.query(
+        'INSERT INTO used_payment_signatures (signature, wallet_address, purpose, amount) VALUES ($1, $2, $3, $4)',
+        [paymentSignature, walletAddress, 'CLAIM', totalClaimFee]
+      );
+      console.log(`🔒 [CLAIM] Payment signature marked as used: ${paymentSignature}`);
+
+      // Record claim fee transaction
       for (const collectionId in collectionMap) {
         const collection = collectionMap[collectionId];
-
         if (collection.claim_fee > 0) {
-          console.log(`💳 [CLAIM] Recording claim fee transaction for ${collection.name}: ${collection.claim_fee} SOL`);
-
           await dbConnection.query(
             'INSERT INTO transactions (wallet_address, transaction_type, amount, status, transaction_hash) VALUES ($1, $2, $3, $4, $5)',
             [walletAddress, 'FEE', collection.claim_fee, 'CONFIRMED', paymentSignature]
@@ -340,84 +375,115 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
       }
     }
 
-    // Get Solana connection and rewards keypair
-    console.log(`🔐 [CLAIM] Setting up Solana connection for devnet...`);
+    // ═══════════════════════════════════════════════════════════════════
+    // CRITICAL STEP 6: UPDATE last_claim_timestamp BEFORE sending tokens
+    // This is the "claim-before-send" pattern:
+    // - Mark rewards as claimed in DB first
+    // - Then send tokens on-chain
+    // - If send fails, we record it as FAILED and can retry/refund later
+    // - But we NEVER allow double-calculation of the same time window
+    // ═══════════════════════════════════════════════════════════════════
+    const claimTimestamp = new Date();
+    const updateResult = await dbConnection.query(
+      'UPDATE staked_nfts SET last_claim_timestamp = $1 WHERE owner_wallet = $2',
+      [claimTimestamp, walletAddress]
+    );
 
+    if (updateResult.rowCount === 0) {
+      await dbConnection.query('ROLLBACK');
+      throw new Error('Failed to update claim timestamps — wallet mismatch');
+    }
+
+    console.log(`✅ [CLAIM] Timestamps updated for ${updateResult.rowCount} NFTs BEFORE sending tokens`);
+
+    // Record each reward as PENDING transaction
+    const pendingTransactions = [];
+    for (const reward of rewards) {
+      const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals));
+      if (tokenAmount <= 0) continue;
+
+      const rewardResult = await dbConnection.query(
+        'INSERT INTO transactions (wallet_address, transaction_type, amount, token_address, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [walletAddress, 'CLAIM', reward.amount, reward.token_address, 'PENDING']
+      );
+      pendingTransactions.push({
+        id: rewardResult.rows[0].id,
+        reward,
+        tokenAmount
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 7: COMMIT the database transaction
+    // At this point, rewards are claimed in DB. Even if token transfer fails,
+    // the user cannot claim the same time window again.
+    // ═══════════════════════════════════════════════════════════════════
+    await dbConnection.query('COMMIT');
+    console.log(`✅ [CLAIM] Database transaction COMMITTED — timestamps locked, proceeding with transfers`);
+
+    // Release the DB connection since we're done with the transaction
+    dbConnection.release();
+    dbConnection = null;
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 8: Send token transfers (OUTSIDE of DB transaction)
+    // Uses Helius RPC via transactionRetry service for reliable delivery
+    // If these fail, the user's rewards are recorded as FAILED and can be
+    // retried by admin or automatically — but the time window is consumed.
+    // ═══════════════════════════════════════════════════════════════════
     let solanaConnection;
     let rewardsKeypair;
 
     try {
       solanaConnection = getConnection();
-      console.log(`🌐 [CLAIM] Connected to: ${solanaConnection.rpcEndpoint}`);
-
       rewardsKeypair = getKeypairFromPrivateKey(encryptedKey);
       console.log(`🔑 [CLAIM] Rewards wallet loaded: ${rewardsKeypair.publicKey.toString()}`);
 
-      // Check rewards wallet balance
       const balance = await solanaConnection.getBalance(rewardsKeypair.publicKey);
-      console.log(`💰 [CLAIM] Rewards wallet balance: ${balance / 1e9} SOL`);
+      console.log(`💰 [CLAIM] Rewards wallet SOL balance: ${balance / 1e9} SOL`);
 
-      if (balance < 10000000) { // Less than 0.01 SOL
+      if (balance < 10000000) {
         throw new Error('Insufficient SOL balance in rewards wallet for transaction fees');
       }
-
     } catch (connectionError) {
       console.error('❌ [CLAIM] Solana setup failed:', connectionError);
-      await dbConnection.query('ROLLBACK');
-      throw new Error(`Solana connection failed: ${connectionError.message}`);
+      // Mark all pending transactions as FAILED
+      for (const pt of pendingTransactions) {
+        await pool.query('UPDATE transactions SET status = $1 WHERE id = $2', ['FAILED', pt.id]);
+      }
+      return {
+        success: false,
+        message: `Solana connection failed: ${connectionError.message}. Your claim has been recorded. Contact admin for retry.`,
+        data: { successful_claims: 0, failed_claims: pendingTransactions.length, claim_recorded: true }
+      };
     }
 
-    // Process each reward token with REAL transactions
     let successfulClaims = 0;
     let failedClaims = 0;
     let rewardTransactionSignatures = [];
 
-    for (const reward of rewards) {
-      const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals));
-
-      if (tokenAmount <= 0) {
-        console.log(`⚠️ [CLAIM] Skipping ${reward.token_symbol} - amount too small`);
-        continue;
-      }
-
-      // Record transaction as pending
-      const rewardResult = await dbConnection.query(
-        'INSERT INTO transactions (wallet_address, transaction_type, amount, token_address, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [walletAddress, 'CLAIM', reward.amount, reward.token_address, 'PENDING']
-      );
-
-      const rewardTransactionId = rewardResult.rows[0].id;
+    for (const pt of pendingTransactions) {
+      const { reward, tokenAmount, id: transactionId } = pt;
 
       try {
         console.log(`🚀 [CLAIM] Processing ${reward.token_symbol}: ${reward.amount} tokens (${tokenAmount} base units)`);
 
         let signature;
 
-        // For SOL rewards, send direct SOL transfer
         if (reward.token_address === 'So11111111111111111111111111111111111111112') {
-          console.log(`💎 [CLAIM] Sending SOL reward...`);
-
+          // SOL transfer
           const userPubkey = new PublicKey(walletAddress);
-
-          // Create SOL transfer instruction
-          const { createSolTransferInstruction } = require('./solana-transaction-utils');
           const transferInstruction = createSolTransferInstruction(
             rewardsKeypair.publicKey,
             userPubkey,
             tokenAmount
           );
-
-          // Send transaction
           signature = await sendTransaction([transferInstruction], rewardsKeypair);
-          console.log(`✅ [CLAIM] SOL transfer completed: ${signature}`);
         } else {
-          // For SPL tokens
-          console.log(`🪙 [CLAIM] Processing SPL token: ${reward.token_symbol}`);
-
+          // SPL token transfer
           const tokenMint = new PublicKey(reward.token_address);
           const userPubkey = new PublicKey(walletAddress);
 
-          // Get or create token accounts
           const sourceTokenAccount = await getOrCreateTokenAccount(
             solanaConnection,
             tokenMint,
@@ -429,13 +495,9 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
             solanaConnection,
             tokenMint,
             userPubkey,
-            rewardsKeypair // Fee payer for creating user's token account
+            rewardsKeypair
           );
 
-          console.log(`🏦 [CLAIM] Source: ${sourceTokenAccount.toString()}`);
-          console.log(`🏦 [CLAIM] Destination: ${destinationTokenAccount.toString()}`);
-
-          // Create token transfer instruction
           const transferInstruction = await createTokenTransferInstruction(
             sourceTokenAccount,
             destinationTokenAccount,
@@ -443,15 +505,19 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
             tokenAmount
           );
 
-          // Send transaction
+          // sendTransaction uses transactionRetryService which has:
+          // - 3 retries with exponential backoff
+          // - Priority fee escalation per retry
+          // - Fresh blockhash per attempt
+          // - 60-second confirmation timeout
+          // - Helius RPC as primary endpoint
           signature = await sendTransaction([transferInstruction], rewardsKeypair);
-          console.log(`✅ [CLAIM] SPL transfer completed: ${signature}`);
         }
 
-        // Update transaction status
-        await dbConnection.query(
+        // Update transaction status to CONFIRMED
+        await pool.query(
           'UPDATE transactions SET status = $1, transaction_hash = $2 WHERE id = $3',
-          ['CONFIRMED', signature, rewardTransactionId]
+          ['CONFIRMED', signature, transactionId]
         );
 
         rewardTransactionSignatures.push({
@@ -460,112 +526,44 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
           amount: reward.amount
         });
 
-        console.log(`✅ [CLAIM] Successfully claimed ${reward.token_symbol}: ${signature}`);
+        console.log(`✅ [CLAIM] Successfully sent ${reward.token_symbol}: ${signature}`);
         successfulClaims++;
 
       } catch (error) {
         console.error(`❌ [CLAIM] Failed to send ${reward.token_symbol}:`, error);
 
-        // Update transaction status
-        await dbConnection.query(
+        // Mark as FAILED — admin can retry later
+        await pool.query(
           'UPDATE transactions SET status = $1 WHERE id = $2',
-          ['FAILED', rewardTransactionId]
+          ['FAILED', transactionId]
         );
 
         failedClaims++;
       }
     }
 
-    // CRITICAL: Only update timestamps if at least one reward was successfully sent
-    if (successfulClaims === 0) {
-      await dbConnection.query('ROLLBACK');
-      console.error(`❌ [CLAIM] All transfers failed (${failedClaims} failed) - rolling back, timestamps NOT updated`);
-      return {
-        success: false,
-        message: `Reward transfers failed. No rewards were sent. Your accrued rewards have been preserved. Please try again or contact support.`,
-        data: { successful_claims: 0, failed_claims: failedClaims }
-      };
-    }
-
-    // CRITICAL FIX: Update last_claim_timestamp with extensive logging and verification
-    console.log(`🔄 [CLAIM] About to update last_claim_timestamp for wallet: "${walletAddress}"`);
-    console.log(`🔄 [CLAIM] Successful claims: ${successfulClaims}, proceeding with timestamp update...`);
-
-    // Check current timestamps BEFORE update (with lock to ensure consistency)
-    const beforeUpdateResult = await dbConnection.query(
-      'SELECT mint_address, owner_wallet, last_claim_timestamp, NOW() as current_server_time FROM staked_nfts WHERE owner_wallet = $1 FOR UPDATE',
-      [walletAddress]
-    );
-    console.log(`📅 [CLAIM] Current server time:`, new Date().toISOString());
-    console.log(`📅 [CLAIM] Timestamps BEFORE update:`, beforeUpdateResult.rows);
-
-    // FIXED: Perform the update with exact wallet address match
-    console.log(`🔄 [CLAIM] Executing UPDATE query with wallet address: "${walletAddress}"`);
-    const updateResult = await dbConnection.query(
-      'UPDATE staked_nfts SET last_claim_timestamp = NOW() WHERE owner_wallet = $1',
-      [walletAddress]
-    );
-
-    console.log(`🔄 [CLAIM] Update result:`, {
-      rowCount: updateResult.rowCount
-    });
-
-    // Check timestamps AFTER update
-    const afterUpdateResult = await dbConnection.query(
-      'SELECT mint_address, owner_wallet, last_claim_timestamp, NOW() as current_server_time FROM staked_nfts WHERE owner_wallet = $1',
-      [walletAddress]
-    );
-    console.log(`📅 [CLAIM] Timestamps AFTER update:`, afterUpdateResult.rows);
-
-    // CRITICAL: Validate the update worked
-    if (updateResult.rowCount === 0) {
-      console.error(`❌ [CLAIM] CRITICAL ERROR: NO ROWS WERE UPDATED!`);
-      console.error(`❌ [CLAIM] Wallet address used: "${walletAddress}"`);
-
-      // Check if any NFTs exist for this wallet with exact debugging
-      const exactWalletCheckResult = await dbConnection.query(
-        'SELECT owner_wallet, COUNT(*) as count FROM staked_nfts WHERE owner_wallet = $1 GROUP BY owner_wallet',
-        [walletAddress]
-      );
-
-      // Also check for similar wallet addresses
-      const similarWalletsResult = await dbConnection.query(
-        'SELECT DISTINCT owner_wallet FROM staked_nfts LIMIT 5'
-      );
-
-      console.error(`❌ [CLAIM] Exact wallet match: ${JSON.stringify(exactWalletCheckResult.rows)}`);
-      console.error(`❌ [CLAIM] Sample wallet addresses in DB: ${JSON.stringify(similarWalletsResult.rows)}`);
-
-      await dbConnection.query('ROLLBACK');
-      throw new Error(`Failed to update claim timestamps. Wallet address mismatch detected.`);
-    } else {
-      console.log(`✅ [CLAIM] Successfully updated ${updateResult.rowCount} NFT timestamps`);
-    }
-
-    // Commit all database changes
-    await dbConnection.query('COMMIT');
-    console.log(`✅ [CLAIM] Transaction committed successfully`);
-
-    console.log(`🎉 [CLAIM] DEVNET claim completed!`);
-    console.log(`🎉 [CLAIM] Successful: ${successfulClaims}, Failed: ${failedClaims}`);
-    console.log(`🎉 [CLAIM] Total claim fee: ${totalClaimFee} SOL`);
-
-    // IMPORTANT: Refresh metadata AFTER successful claim
-    // This ensures current claim uses old traits, but future claims use updated traits
-    console.log(`🔄 [CLAIM] Refreshing metadata for wallet ${walletAddress} after successful claim...`);
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 9: Post-claim metadata refresh (non-critical)
+    // ═══════════════════════════════════════════════════════════════════
     try {
       const metadataRefresh = require('./services/metadataRefresh');
-      const refreshResult = await metadataRefresh.refreshStakedNFTMetadata(null, walletAddress, walletAddress);
-      console.log(`✅ [CLAIM] Metadata refresh completed:`, refreshResult.stats);
+      await metadataRefresh.refreshStakedNFTMetadata(null, walletAddress, walletAddress);
+      console.log(`✅ [CLAIM] Metadata refresh completed`);
     } catch (refreshError) {
-      // Don't fail the claim if metadata refresh fails
       console.error(`⚠️ [CLAIM] Metadata refresh failed (non-critical):`, refreshError);
     }
 
+    console.log(`🎉 [CLAIM] Claim completed! Successful: ${successfulClaims}, Failed: ${failedClaims}`);
+
+    // Build response
+    const responseMessage = successfulClaims > 0
+      ? `Successfully sent ${successfulClaims} reward(s)!${failedClaims > 0 ? ` ${failedClaims} failed (will be retried).` : ''}${totalClaimFee > 0 ? ` Claim fee: ${totalClaimFee} SOL paid.` : ''}`
+      : `All ${failedClaims} transfers failed. Your claim time window has been consumed. Contact admin for a retry.`;
+
     return {
-      success: true,
-      message: `Successfully claimed ${successfulClaims} rewards on devnet! ${totalClaimFee > 0 ? `Claim fee: ${totalClaimFee} SOL paid.` : ''} ${failedClaims > 0 ? `${failedClaims} failed.` : ''} Timestamps updated for ${updateResult.rowCount || 0} NFTs.`,
-      claim_timestamp: new Date().toISOString(),
+      success: successfulClaims > 0,
+      message: responseMessage,
+      claim_timestamp: claimTimestamp.toISOString(),
       just_claimed: true,
       data: {
         rewards,

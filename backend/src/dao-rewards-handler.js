@@ -242,6 +242,7 @@ async function getDaoEligibleNFTs(walletAddress) {
 // ---------------------------------------------------------------------------
 // claimDaoRewards(walletAddress, paymentSignature)
 // Requirements: 4.3 — verify fee, SPL transfer from dao_rewards_wallet, update dao_last_claim_timestamp
+// SECURITY: Uses advisory lock, signature dedup, and claim-before-send pattern
 // ---------------------------------------------------------------------------
 async function claimDaoRewards(walletAddress, paymentSignature = null) {
   let dbConnection;
@@ -252,12 +253,33 @@ async function claimDaoRewards(walletAddress, paymentSignature = null) {
     dbConnection = await pool.getClient();
     await dbConnection.query('BEGIN');
 
+    // SECURITY: Advisory lock to prevent concurrent DAO claims
+    const lockKey = Buffer.from('dao-' + walletAddress).reduce((acc, byte) => (acc * 31 + byte) & 0x7FFFFFFF, 0);
+    const lockResult = await dbConnection.query('SELECT pg_try_advisory_xact_lock($1) as acquired', [lockKey]);
+    if (!lockResult.rows[0].acquired) {
+      await dbConnection.query('ROLLBACK');
+      return { success: false, message: 'A DAO claim is already being processed for this wallet. Please wait.' };
+    }
+
+    // SECURITY: Check payment signature replay
+    if (paymentSignature) {
+      const sigCheck = await dbConnection.query(
+        'SELECT id FROM used_payment_signatures WHERE signature = $1',
+        [paymentSignature]
+      );
+      if (sigCheck.rows.length > 0) {
+        await dbConnection.query('ROLLBACK');
+        console.error(`🚫 [DAO-CLAIM] REPLAY ATTACK BLOCKED — signature already used: ${paymentSignature}`);
+        return { success: false, message: 'This payment signature has already been used. Please initiate a new claim.' };
+      }
+    }
+
     // Lock staked NFTs for this wallet to prevent race conditions
     const stakedResult = await dbConnection.query(
       `SELECT s.id, s.mint_address, s.collection_id, s.owner_wallet
        FROM staked_nfts s
        WHERE s.owner_wallet = $1
-       FOR UPDATE`,
+       FOR UPDATE OF s`,
       [walletAddress]
     );
 
@@ -325,10 +347,16 @@ async function claimDaoRewards(walletAddress, paymentSignature = null) {
 
       console.log(`✅ [DAO-CLAIM] DAO payment verified`);
 
+      // SECURITY: Mark signature as used IMMEDIATELY
+      await dbConnection.query(
+        'INSERT INTO used_payment_signatures (signature, wallet_address, purpose, amount) VALUES ($1, $2, $3, $4)',
+        [paymentSignature, walletAddress, 'DAO_CLAIM', daoClaimFee]
+      );
+
       // Record fee transaction
       await dbConnection.query(
         'INSERT INTO transactions (wallet_address, transaction_type, amount, status, transaction_hash) VALUES ($1, $2, $3, $4, $5)',
-        [walletAddress, 'DAO_CLAIM', daoClaimFee, 'CONFIRMED', paymentSignature]
+        [walletAddress, 'FEE', daoClaimFee, 'CONFIRMED', paymentSignature]
       );
     }
 
@@ -349,7 +377,35 @@ async function claimDaoRewards(walletAddress, paymentSignature = null) {
 
     console.log(`💰 [DAO-CLAIM] ${rewards.length} DAO reward token(s) to distribute`);
 
-    // Set up Solana connection and DAO keypair
+    // CLAIM-BEFORE-SEND: Update dao_last_claim_timestamp FIRST
+    const updateResult = await dbConnection.query(
+      `UPDATE staked_nfts SET dao_last_claim_timestamp = NOW()
+       WHERE owner_wallet = $1 AND dao_last_claim_timestamp IS NOT NULL`,
+      [walletAddress]
+    );
+
+    console.log(`🔄 [DAO-CLAIM] Updated dao_last_claim_timestamp for ${updateResult.rowCount} NFTs BEFORE sending tokens`);
+
+    // Record pending transactions
+    const pendingTransactions = [];
+    for (const reward of rewards) {
+      const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals));
+      if (tokenAmount <= 0) continue;
+
+      const txResult = await dbConnection.query(
+        'INSERT INTO transactions (wallet_address, transaction_type, amount, token_address, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [walletAddress, 'DAO_CLAIM', reward.amount, reward.token_address, 'PENDING']
+      );
+      pendingTransactions.push({ id: txResult.rows[0].id, reward, tokenAmount });
+    }
+
+    // COMMIT before sending tokens (claim-before-send pattern)
+    await dbConnection.query('COMMIT');
+    console.log(`✅ [DAO-CLAIM] DB transaction committed — timestamps locked, proceeding with transfers`);
+    dbConnection.release();
+    dbConnection = null;
+
+    // Send SPL transfers (outside of DB transaction)
     let solanaConnection;
     let daoKeypair;
 
@@ -359,35 +415,27 @@ async function claimDaoRewards(walletAddress, paymentSignature = null) {
       console.log(`🔑 [DAO-CLAIM] DAO rewards wallet loaded: ${daoKeypair.publicKey.toString()}`);
 
       const balance = await solanaConnection.getBalance(daoKeypair.publicKey);
-      console.log(`💰 [DAO-CLAIM] DAO wallet SOL balance: ${balance / 1e9}`);
-
       if (balance < 10000000) {
-        throw new Error('Insufficient SOL balance in DAO rewards wallet for transaction fees');
+        throw new Error('Insufficient SOL balance in DAO rewards wallet');
       }
     } catch (connectionError) {
-      await dbConnection.query('ROLLBACK');
-      throw new Error(`DAO Solana connection failed: ${connectionError.message}`);
+      // Mark all as failed
+      for (const pt of pendingTransactions) {
+        await pool.query('UPDATE transactions SET status = $1 WHERE id = $2', ['FAILED', pt.id]);
+      }
+      return {
+        success: false,
+        message: `DAO Solana connection failed: ${connectionError.message}. Claim recorded, contact admin for retry.`,
+        data: { successful_claims: 0, failed_claims: pendingTransactions.length, claim_recorded: true }
+      };
     }
 
-    // Execute SPL transfers from dao_rewards_wallet
     let successfulClaims = 0;
     let failedClaims = 0;
     const rewardSignatures = [];
 
-    for (const reward of rewards) {
-      const tokenAmount = Math.floor(reward.amount * Math.pow(10, reward.token_decimals));
-
-      if (tokenAmount <= 0) {
-        console.log(`⚠️ [DAO-CLAIM] Skipping ${reward.token_symbol} — amount too small`);
-        continue;
-      }
-
-      // Record as pending
-      const txResult = await dbConnection.query(
-        'INSERT INTO transactions (wallet_address, transaction_type, amount, token_address, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [walletAddress, 'DAO_CLAIM', reward.amount, reward.token_address, 'PENDING']
-      );
-      const txId = txResult.rows[0].id;
+    for (const pt of pendingTransactions) {
+      const { id: txId, reward, tokenAmount } = pt;
 
       try {
         console.log(`🚀 [DAO-CLAIM] Sending ${reward.amount} ${reward.token_symbol} to ${walletAddress}`);
@@ -419,7 +467,7 @@ async function claimDaoRewards(walletAddress, paymentSignature = null) {
         const signature = await sendTransaction([transferInstruction], daoKeypair);
         console.log(`✅ [DAO-CLAIM] SPL transfer complete: ${signature}`);
 
-        await dbConnection.query(
+        await pool.query(
           'UPDATE transactions SET status = $1, transaction_hash = $2 WHERE id = $3',
           ['CONFIRMED', signature, txId]
         );
@@ -428,60 +476,21 @@ async function claimDaoRewards(walletAddress, paymentSignature = null) {
         successfulClaims++;
       } catch (transferError) {
         console.error(`❌ [DAO-CLAIM] Transfer failed for ${reward.token_symbol}:`, transferError);
-        await dbConnection.query(
-          'UPDATE transactions SET status = $1 WHERE id = $2',
-          ['FAILED', txId]
-        );
+        await pool.query('UPDATE transactions SET status = $1 WHERE id = $2', ['FAILED', txId]);
         failedClaims++;
       }
     }
 
-    if (successfulClaims === 0) {
-      await dbConnection.query('ROLLBACK');
-      return {
-        success: false,
-        message: 'All DAO reward transfers failed. Your accrued DAO rewards have been preserved. Please try again.',
-        data: { successful_claims: 0, failed_claims: failedClaims }
-      };
-    }
-
-    // Update dao_last_claim_timestamp ONLY on NFTs that actually have matching DAO traits
-    // Never touch last_claim_timestamp (regular staking) or NFTs without DAO traits
-    const updateResult = await dbConnection.query(
-      `UPDATE staked_nfts SET dao_last_claim_timestamp = NOW()
-       WHERE owner_wallet = $1
-         AND EXISTS (
-           SELECT 1 FROM dao_trait_rewards dtr
-           WHERE dtr.is_active = TRUE
-             AND dtr.collection_id = staked_nfts.collection_id
-             AND staked_nfts.traits IS NOT NULL
-             AND staked_nfts.traits::text != 'null'
-             AND EXISTS (
-               SELECT 1 FROM jsonb_array_elements(staked_nfts.traits::jsonb) t
-               WHERE (t->>'trait_type') ILIKE dtr.trait_type
-                 AND (t->>'value') ILIKE dtr.trait_value
-             )
-         )`,
-      [walletAddress]
-    );
-
-    console.log(`🔄 [DAO-CLAIM] Updated dao_last_claim_timestamp for ${updateResult.rowCount} NFTs`);
-
-    if (updateResult.rowCount === 0) {
-      await dbConnection.query('ROLLBACK');
-      throw new Error('Failed to update DAO claim timestamps.');
-    }
-
-    await dbConnection.query('COMMIT');
     console.log(`🎉 [DAO-CLAIM] DAO claim complete — ${successfulClaims} succeeded, ${failedClaims} failed`);
 
-    const primarySignature = rewardSignatures[0]?.signature || null;
-
     return {
-      success: true,
+      success: successfulClaims > 0,
+      message: successfulClaims > 0
+        ? `Successfully sent ${successfulClaims} DAO reward(s)!${failedClaims > 0 ? ` ${failedClaims} failed (will be retried).` : ''}`
+        : `All DAO transfers failed. Claim time window consumed. Contact admin for retry.`,
       data: {
         rewards,
-        signature: primarySignature,
+        signature: rewardSignatures[0]?.signature || null,
         reward_signatures: rewardSignatures,
         successful_claims: successfulClaims,
         failed_claims: failedClaims,

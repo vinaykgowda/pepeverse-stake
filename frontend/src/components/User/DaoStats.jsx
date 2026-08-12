@@ -113,6 +113,8 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
   }, [walletAddress, daoRewards]);
 
   const executeDaoClaimWithPayment = useCallback(async () => {
+    // Prevent double-execution
+    if (daoClaimProcessing) return;
     setDaoClaimProcessing(true);
     setDaoClaimError(null);
     try {
@@ -121,7 +123,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
         setDaoClaimStatus('Processing DAO claim fee payment...');
         paymentSignature = await createPaymentTx(daoClaimQuote.fee_recipient, daoClaimQuote.total_claim_fee);
       }
-      setDaoClaimStatus('Claiming DAO rewards...');
+      setDaoClaimStatus('Claiming DAO rewards... This may take up to 60 seconds during network congestion.');
       const res = await api.daoUser.claimRewards({
         wallet_address: walletAddress,
         payment_signature: paymentSignature,
@@ -133,15 +135,21 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
         setDaoRewards([]);
         setTimeout(loadDaoData, 2000);
       } else {
+        // On failure, close modal to prevent re-click
         setDaoClaimError(res.data?.message || 'Failed to claim DAO rewards');
+        setShowDaoClaimModal(false);
+        setDaoClaimQuote(null);
       }
     } catch (e) {
+      // On error, close modal to prevent re-click
       setDaoClaimError(e.response?.data?.message || e.message || 'An error occurred');
+      setShowDaoClaimModal(false);
+      setDaoClaimQuote(null);
     } finally {
       setDaoClaimProcessing(false);
       setDaoClaimStatus('');
     }
-  }, [daoClaimQuote, walletAddress, createPaymentTx, loadDaoData]);
+  }, [daoClaimQuote, walletAddress, createPaymentTx, loadDaoData, daoClaimProcessing]);
 
   // DAO Airdrop flow
   const handleDaoAirdropClaim = useCallback(async (airdrop) => {

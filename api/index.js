@@ -304,6 +304,18 @@ userRouter.post('/airdrops/claim', verifyJWT, async (req, res) => {
 
     const pool = getPool();
 
+    // SECURITY: Check payment signature replay if provided
+    if (payment_signature) {
+      const sigCheck = await pool.query('SELECT id FROM used_payment_signatures WHERE signature = $1', [payment_signature]);
+      if (sigCheck.rows.length > 0) {
+        return res.status(409).json({ success: false, message: 'This payment signature has already been used.' });
+      }
+      await pool.query(
+        'INSERT INTO used_payment_signatures (signature, wallet_address, purpose) VALUES ($1, $2, $3) ON CONFLICT (signature) DO NOTHING',
+        [payment_signature, wallet_address, 'AIRDROP']
+      );
+    }
+
     // Verify snapshot exists and is unclaimed
     const snapResult = await pool.query(
       `SELECT snap.id, snap.token_amount, ac.token_address, ac.token_symbol, ac.token_decimals
@@ -602,6 +614,19 @@ stakingRouter.post('/nfts/stake', verifyJWT, async (req, res) => {
     const colResult = await pool.query('SELECT id, name, stake_fee, hashlist FROM collections WHERE id = $1', [collectionId]);
     if (colResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Collection not found' });
 
+    // SECURITY: Check payment signature replay if payment was provided
+    if (paymentSignature) {
+      const sigCheck = await pool.query('SELECT id FROM used_payment_signatures WHERE signature = $1', [paymentSignature]);
+      if (sigCheck.rows.length > 0) {
+        return res.status(409).json({ success: false, message: 'This payment signature has already been used. Please initiate a new transaction.' });
+      }
+      // Mark signature as used
+      await pool.query(
+        'INSERT INTO used_payment_signatures (signature, wallet_address, purpose, amount) VALUES ($1, $2, $3, $4) ON CONFLICT (signature) DO NOTHING',
+        [paymentSignature, req.user.walletAddress, 'STAKE', parseFloat(colResult.rows[0].stake_fee || 0) * nfts.length]
+      );
+    }
+
     const stakedAt = new Date();
     const inserted = [];
     for (const nft of nfts) {
@@ -804,6 +829,20 @@ stakingRouter.post('/rewards/claim', verifyJWT, async (req, res) => {
   try {
     const { claimRewardsWithPayment } = require('../backend/src/solana-rewards-handler');
     const { paymentSignature } = req.body;
+    
+    // SECURITY: Ensure used_payment_signatures table exists (graceful migration)
+    const pool = getPool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS used_payment_signatures (
+        id SERIAL PRIMARY KEY,
+        signature VARCHAR(128) NOT NULL UNIQUE,
+        wallet_address VARCHAR(44) NOT NULL,
+        purpose VARCHAR(30) NOT NULL DEFAULT 'CLAIM',
+        amount DECIMAL(18, 9),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).catch(() => {}); // ignore if already exists
+    
     const result = await claimRewardsWithPayment(req.user.walletAddress, paymentSignature || null);
     if (result.success) {
       return res.json(result);

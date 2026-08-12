@@ -115,6 +115,8 @@ const RewardsPanel = () => {
 
   // Execute claim with payment - memoized
   const executeClaimWithPayment = useCallback(async () => {
+    // Prevent double-execution
+    if (processing) return;
     try {
       setProcessing(true);
       setError(null);
@@ -136,7 +138,7 @@ const RewardsPanel = () => {
       }
 
       // Step 2: Execute claim with payment proof
-      setTransactionStatus('Processing reward claim...');
+      setTransactionStatus('Processing reward claim... This may take up to 60 seconds during network congestion.');
       console.log('🎯 Executing claim with payment proof...');
 
       const claimResult = await claimFromContext(paymentSignature);
@@ -207,9 +209,12 @@ const RewardsPanel = () => {
         // Reload rewards after a short delay
         setTimeout(() => {
           loadRewards();
-        }, 2000); // Increased delay to ensure DB is updated
+        }, 2000);
       } else {
+        // On failure, close modal to prevent re-click with stale data
         setError(claimResult.message || 'Failed to claim rewards');
+        setShowClaimModal(false);
+        setClaimQuote(null);
       }
 
     } catch (error) {
@@ -217,13 +222,16 @@ const RewardsPanel = () => {
 
       const errorMessage = error.message || 'An error occurred while claiming rewards';
       setError(errorMessage);
+      // On error, close modal to prevent re-click with stale data
+      setShowClaimModal(false);
+      setClaimQuote(null);
       setTransactionStatus('');
     } finally {
       setProcessing(false);
       setTransactionStatus('');
       setEstimatedTime(0);
     }
-  }, [claimQuote, createPaymentTransaction, claimFromContext, loadRewards]); // Memoize with dependencies
+  }, [claimQuote, createPaymentTransaction, claimFromContext, loadRewards, processing]); // Memoize with dependencies
 
   // Clear messages - memoized
   const clearMessages = useCallback(() => {

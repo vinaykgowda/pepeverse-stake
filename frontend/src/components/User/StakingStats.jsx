@@ -154,6 +154,8 @@ const StakingStats = ({ walletNFTs = [] }) => {
   }, [getClaimQuote, rewards]);
 
   const executeClaimWithPayment = useCallback(async () => {
+    // Prevent double-execution
+    if (claimProcessing) return;
     try {
       setClaimProcessing(true);
       setClaimError(null);
@@ -162,7 +164,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
         setClaimStatus('Processing claim fee payment...');
         paymentSignature = await createPaymentTx(claimQuote.fee_recipient, claimQuote.total_claim_fee);
       }
-      setClaimStatus('Claiming rewards...');
+      setClaimStatus('Claiming rewards... This may take up to 60 seconds during network congestion. Do not close this window.');
       const result = await claimRewards(paymentSignature);
       if (result.success) {
         setClaimSuccess('Rewards claimed successfully!');
@@ -172,15 +174,21 @@ const StakingStats = ({ walletNFTs = [] }) => {
         setStats(s => ({ ...s, totalRewards: 0 }));
         setTimeout(loadStats, 2000);
       } else {
+        // On failure, CLOSE the modal to prevent re-click with stale quote
         setClaimError(result.message || 'Failed to claim');
+        setShowClaimModal(false);
+        setClaimQuote(null);
       }
     } catch (e) {
+      // On error, CLOSE the modal to prevent re-click
       setClaimError(e.message || 'An error occurred');
+      setShowClaimModal(false);
+      setClaimQuote(null);
     } finally {
       setClaimProcessing(false);
       setClaimStatus('');
     }
-  }, [claimQuote, createPaymentTx, claimRewards, loadStats]);
+  }, [claimQuote, createPaymentTx, claimRewards, loadStats, claimProcessing]);
 
   // Airdrop flow
   const handleAirdropClaim = useCallback(async (airdrop) => {
@@ -432,7 +440,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
               <div className="flex flex-col items-center py-8">
                 <div className="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4 border-green-500 mb-4" />
                 <p className="text-green-300 font-medium">{claimStatus}</p>
-                <p className="text-green-800 text-xs mt-3 text-center">Do not close this window</p>
+                <p className="text-green-800 text-xs mt-3 text-center">Do not close this window.<br/>Solana transactions may take up to 60 seconds during congestion.</p>
               </div>
             ) : (
               <>
