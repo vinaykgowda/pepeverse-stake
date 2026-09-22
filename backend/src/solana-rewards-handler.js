@@ -382,7 +382,25 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     // - Then send tokens on-chain
     // - If send fails, we record it as FAILED and can retry/refund later
     // - But we NEVER allow double-calculation of the same time window
+    //
+    // BUGFIX: Previously, if every token transfer failed the timestamps were
+    // still permanently advanced at COMMIT time, so the user lost the entire
+    // earning window (and the claim fee) even though no rewards were sent.
+    // We now snapshot the per-NFT previous timestamps so STEP 8 can restore
+    // them when NOTHING was successfully sent.
     // ═══════════════════════════════════════════════════════════════════
+
+    // Snapshot previous claim timestamps (id -> previous last_claim_timestamp)
+    // so we can roll them back if all on-chain transfers fail after commit.
+    const prevTimestampsResult = await dbConnection.query(
+      'SELECT id, last_claim_timestamp FROM staked_nfts WHERE owner_wallet = $1',
+      [walletAddress]
+    );
+    const previousClaimTimestamps = prevTimestampsResult.rows.map(r => ({
+      id: r.id,
+      last_claim_timestamp: r.last_claim_timestamp
+    }));
+
     const claimTimestamp = new Date();
     const updateResult = await dbConnection.query(
       'UPDATE staked_nfts SET last_claim_timestamp = $1 WHERE owner_wallet = $2',
@@ -451,10 +469,40 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
       for (const pt of pendingTransactions) {
         await pool.query('UPDATE transactions SET status = $1 WHERE id = $2', ['FAILED', pt.id]);
       }
+
+      // BUGFIX: Solana setup failed before ANY token was sent — restore the
+      // earning window so the user does not lose rewards for a claim that
+      // never left the building.
+      if (previousClaimTimestamps.length > 0) {
+        try {
+          const restoreClient = await pool.getClient();
+          try {
+            await restoreClient.query('BEGIN');
+            for (const snap of previousClaimTimestamps) {
+              await restoreClient.query(
+                `UPDATE staked_nfts
+                   SET last_claim_timestamp = $1
+                 WHERE id = $2 AND last_claim_timestamp = $3`,
+                [snap.last_claim_timestamp, snap.id, claimTimestamp]
+              );
+            }
+            await restoreClient.query('COMMIT');
+            console.log(`↩️ [CLAIM] Solana setup failed — restored earning window for ${previousClaimTimestamps.length} NFTs`);
+          } catch (restoreErr) {
+            await restoreClient.query('ROLLBACK');
+            console.error('❌ [CLAIM] Failed to restore timestamps after setup failure:', restoreErr);
+          } finally {
+            restoreClient.release();
+          }
+        } catch (poolErr) {
+          console.error('❌ [CLAIM] Could not obtain connection to restore timestamps:', poolErr);
+        }
+      }
+
       return {
         success: false,
-        message: `Solana connection failed: ${connectionError.message}. Your claim has been recorded. Contact admin for retry.`,
-        data: { successful_claims: 0, failed_claims: pendingTransactions.length, claim_recorded: true }
+        message: `Solana connection failed: ${connectionError.message}. Your claim was not processed and your rewards remain claimable. Please try again.`,
+        data: { successful_claims: 0, failed_claims: pendingTransactions.length, claim_recorded: false }
       };
     }
 
@@ -543,6 +591,41 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // BUGFIX — STEP 8b: If NOTHING was sent, restore the earning window.
+    // Without this, a fully-failed claim consumes the user's rewards even
+    // though zero tokens were delivered (and the fee was already charged).
+    // We only restore when successfulClaims === 0 to avoid double-crediting
+    // any token that DID go out during a partial success.
+    // ═══════════════════════════════════════════════════════════════════
+    if (successfulClaims === 0 && failedClaims > 0 && previousClaimTimestamps.length > 0) {
+      try {
+        const restoreClient = await pool.getClient();
+        try {
+          await restoreClient.query('BEGIN');
+          for (const snap of previousClaimTimestamps) {
+            // Only roll back rows we advanced in this claim (guard against a
+            // newer concurrent claim having moved the timestamp forward again).
+            await restoreClient.query(
+              `UPDATE staked_nfts
+                 SET last_claim_timestamp = $1
+               WHERE id = $2 AND last_claim_timestamp = $3`,
+              [snap.last_claim_timestamp, snap.id, claimTimestamp]
+            );
+          }
+          await restoreClient.query('COMMIT');
+          console.log(`↩️ [CLAIM] All ${failedClaims} transfers failed — restored earning window for ${previousClaimTimestamps.length} NFTs`);
+        } catch (restoreErr) {
+          await restoreClient.query('ROLLBACK');
+          console.error('❌ [CLAIM] Failed to restore claim timestamps after total failure:', restoreErr);
+        } finally {
+          restoreClient.release();
+        }
+      } catch (poolErr) {
+        console.error('❌ [CLAIM] Could not obtain connection to restore timestamps:', poolErr);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // STEP 9: Post-claim metadata refresh (non-critical)
     // ═══════════════════════════════════════════════════════════════════
     try {
@@ -558,7 +641,7 @@ async function claimRewardsWithPayment(walletAddress, paymentSignature = null) {
     // Build response
     const responseMessage = successfulClaims > 0
       ? `Successfully sent ${successfulClaims} reward(s)!${failedClaims > 0 ? ` ${failedClaims} failed (will be retried).` : ''}${totalClaimFee > 0 ? ` Claim fee: ${totalClaimFee} SOL paid.` : ''}`
-      : `All ${failedClaims} transfers failed. Your claim time window has been consumed. Contact admin for a retry.`;
+      : `All ${failedClaims} transfers failed and no rewards were sent. Your earning window has been restored, so your rewards are still claimable. Please try again.${totalClaimFee > 0 ? ' Note: the claim fee was already paid — contact an admin for a refund of that fee.' : ''}`;
 
     return {
       success: successfulClaims > 0,
