@@ -154,7 +154,9 @@ INSERT INTO settings (key_name, value, description) VALUES
 ('rewards_wallet', '', 'Wallet address for distributing rewards and collecting fees'),
 ('rewards_wallet_encrypted_key', '', 'Encrypted private key of rewards wallet'),
 ('staking_active', 'true', 'Whether staking is currently active'),
-('minimum_claim_amount', '1', 'Minimum amount required to claim rewards');
+('minimum_claim_amount', '1', 'Minimum amount required to claim rewards'),
+('claims_disabled', 'false', 'When true, main + DAO staking reward claims are blocked for maintenance (earning/display unaffected)'),
+('claims_maintenance_message', 'Staking reward claims are temporarily disabled for maintenance. Your NFTs keep earning and your balance is safe — you can claim once maintenance is complete.', 'User-facing message shown while staking claims are disabled');
 
 -- Insert initial super admin
 -- Default password: 'admin123' (hashed with bcrypt rounds=12)

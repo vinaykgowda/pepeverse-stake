@@ -5,6 +5,7 @@ const router = express.Router();
 const { getPool } = require('../src/db');
 const pool = getPool();
 const { verifyJWT } = require('../middleware/auth');
+const { blockIfClaimsDisabled } = require('../src/services/claimsMaintenance');
 const transactionVerification = require('../src/services/transactionVerification');
 const HeliusProxyService = require('../src/services/heliusProxy');
 const heliusProxy = new HeliusProxyService();
@@ -346,6 +347,9 @@ router.get('/dao-claim-quote', async (req, res) => {
 // Requirements: 4.3 — verify fee, SPL transfer from dao_rewards_wallet, update dao_last_claim_timestamp
 router.post('/dao-claim', async (req, res) => {
   try {
+    // Maintenance gate: block DAO claims while disabled (earning/display unaffected)
+    if (await blockIfClaimsDisabled(res)) return;
+
     const { wallet_address, payment_signature } = req.body;
     if (!wallet_address) {
       return res.status(400).json({ success: false, message: 'wallet_address is required' });

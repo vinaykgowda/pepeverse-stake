@@ -11,9 +11,15 @@ const Settings = () => {
   const [success, setSuccess] = useState(null);
 
   // Form state
+  const DEFAULT_MAINTENANCE_MESSAGE =
+    'Staking reward claims are temporarily disabled for maintenance. Your NFTs keep earning and your balance is safe — you can claim once maintenance is complete.';
+
   const [formData, setFormData] = useState({
     staking_active: true,
-    minimum_claim_amount: '1'
+    minimum_claim_amount: '1',
+    // claims_enabled is the friendly inverse of the stored `claims_disabled` flag
+    claims_enabled: true,
+    claims_maintenance_message: DEFAULT_MAINTENANCE_MESSAGE
   });
 
   // Load settings
@@ -27,10 +33,15 @@ const Settings = () => {
       // Set form data from settings
       const stakingActiveSetting = response.data.data.find(s => s.key_name === 'staking_active');
       const minClaimSetting = response.data.data.find(s => s.key_name === 'minimum_claim_amount');
+      const claimsDisabledSetting = response.data.data.find(s => s.key_name === 'claims_disabled');
+      const maintenanceMsgSetting = response.data.data.find(s => s.key_name === 'claims_maintenance_message');
 
       setFormData({
         staking_active: stakingActiveSetting?.value === 'true',
-        minimum_claim_amount: minClaimSetting?.value || '1'
+        minimum_claim_amount: minClaimSetting?.value || '1',
+        // claims are enabled unless the stored flag is explicitly 'true'
+        claims_enabled: claimsDisabledSetting?.value !== 'true',
+        claims_maintenance_message: maintenanceMsgSetting?.value || DEFAULT_MAINTENANCE_MESSAGE
       });
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -72,6 +83,15 @@ const Settings = () => {
         {
           key_name: 'minimum_claim_amount',
           value: formData.minimum_claim_amount
+        },
+        {
+          // stored flag is the inverse of the friendly "Enable Claims" toggle
+          key_name: 'claims_disabled',
+          value: (!formData.claims_enabled).toString()
+        },
+        {
+          key_name: 'claims_maintenance_message',
+          value: formData.claims_maintenance_message
         }
       ]);
 
@@ -195,6 +215,54 @@ const Settings = () => {
                     Minimum amount of rewards required to claim
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Claims (maintenance) settings — applies to BOTH main staking and DAO staking */}
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Reward Claims</h3>
+
+              <div className="flex items-center mb-2">
+                <input
+                  type="checkbox"
+                  id="claims_enabled"
+                  name="claims_enabled"
+                  checked={formData.claims_enabled}
+                  onChange={handleInputChange}
+                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                />
+                <label htmlFor="claims_enabled" className="ml-2 block text-sm text-gray-900">
+                  Enable Reward Claims (Staking &amp; DAO Staking)
+                </label>
+              </div>
+
+              <p className="text-sm text-gray-500 mb-4">
+                When disabled, users cannot claim staking or DAO staking rewards. NFTs keep
+                earning and current earnings stay visible — only claiming is paused. A
+                maintenance banner is shown and the Claim buttons are disabled.
+              </p>
+
+              {!formData.claims_enabled && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-800 px-3 py-2 rounded mb-4 text-sm">
+                  ⚠️ Reward claims are currently <strong>disabled</strong>. Users will see the maintenance message below.
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="claims_maintenance_message" className="block text-sm font-medium text-gray-700 mb-1">
+                  Maintenance Message
+                </label>
+                <textarea
+                  id="claims_maintenance_message"
+                  name="claims_maintenance_message"
+                  value={formData.claims_maintenance_message}
+                  onChange={handleInputChange}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  Shown to users while claims are disabled.
+                </p>
               </div>
             </div>
 

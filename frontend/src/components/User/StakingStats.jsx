@@ -17,6 +17,10 @@ const StakingStats = ({ walletNFTs = [] }) => {
   const [statsLoaded, setStatsLoaded] = useState(false);
   const [hasDaoEarnings, setHasDaoEarnings] = useState(false);
 
+  // Claims maintenance state (disables claiming while keeping earnings visible)
+  const [claimsDisabled, setClaimsDisabled] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState('');
+
   // Claim state
   const [claimQuote, setClaimQuote] = useState(null);
   const [showClaimModal, setShowClaimModal] = useState(false);
@@ -91,6 +95,20 @@ const StakingStats = ({ walletNFTs = [] }) => {
     } catch (e) { /* non-critical — DAO section stays hidden on error */ }
   }, [wallet]);
 
+  // Fetch claims maintenance status once on mount (public, no auth required)
+  useEffect(() => {
+    let cancelled = false;
+    api.staking.getPublicSettings()
+      .then(res => {
+        if (cancelled) return;
+        const data = res.data?.data || {};
+        setClaimsDisabled(!!data.claims_disabled);
+        setMaintenanceMessage(data.claims_maintenance_message || '');
+      })
+      .catch(() => { /* non-critical — claims stay enabled on error */ });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     if (connected && !statsLoaded && !loadingRef.current) {
       loadStats();
@@ -135,6 +153,10 @@ const StakingStats = ({ walletNFTs = [] }) => {
   // Claim flow
   const handleClaimClick = useCallback(async () => {
     setClaimError(null);
+    if (claimsDisabled) {
+      setClaimError(maintenanceMessage || 'Staking claims are temporarily disabled for maintenance.');
+      return;
+    }
     try {
       const res = await getClaimQuote();
       if (res.success) {
@@ -151,7 +173,7 @@ const StakingStats = ({ walletNFTs = [] }) => {
         setClaimError(res.message);
       }
     } catch (e) { setClaimError(e.message); }
-  }, [getClaimQuote, rewards]);
+  }, [getClaimQuote, rewards, claimsDisabled, maintenanceMessage]);
 
   const executeClaimWithPayment = useCallback(async () => {
     // Prevent double-execution
@@ -272,6 +294,14 @@ const StakingStats = ({ walletNFTs = [] }) => {
   return (
     <div className="bg-[#111a11] border border-[#1e3a1e] rounded-xl shadow-[0_0_30px_rgba(34,197,94,0.1)] p-6 text-white">
 
+      {/* Maintenance announcement — claims temporarily disabled */}
+      {claimsDisabled && (
+        <div className="bg-amber-950/50 border border-amber-700/70 text-amber-300 px-4 py-3 rounded-xl mb-4 text-sm flex items-start gap-3">
+          <span className="text-lg leading-none mt-0.5">🛠️</span>
+          <span>{maintenanceMessage || 'Staking reward claims are temporarily disabled for maintenance. Your NFTs keep earning in the meantime.'}</span>
+        </div>
+      )}
+
       {/* Success banners */}
       {claimSuccess && (
         <div className="bg-green-950/60 border border-green-700 text-green-400 px-4 py-3 rounded-xl mb-4 text-sm flex justify-between">
@@ -368,10 +398,11 @@ const StakingStats = ({ walletNFTs = [] }) => {
               </div>
               <button
                 onClick={handleClaimClick}
-                disabled={!hasClaimableRewards || claimProcessing}
+                disabled={claimsDisabled || !hasClaimableRewards || claimProcessing}
+                title={claimsDisabled ? (maintenanceMessage || 'Claims temporarily disabled for maintenance') : undefined}
                 className="mt-4 w-full py-2.5 rounded-xl text-sm font-bold text-black bg-green-500 hover:bg-green-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] disabled:bg-green-900 disabled:text-green-700 disabled:shadow-none disabled:cursor-not-allowed"
               >
-                {claimProcessing ? 'Processing...' : 'Claim Rewards'}
+                {claimsDisabled ? 'Claims Under Maintenance' : (claimProcessing ? 'Processing...' : 'Claim Rewards')}
               </button>
             </div>
 
@@ -380,6 +411,8 @@ const StakingStats = ({ walletNFTs = [] }) => {
               <DaoStats
                 walletAddress={wallet?.adapter?.publicKey?.toString()}
                 onEarningsChange={setHasDaoEarnings}
+                claimsDisabled={claimsDisabled}
+                maintenanceMessage={maintenanceMessage}
               />
             )}
           </div>

@@ -111,6 +111,9 @@ const stakingApi = {
   getTransactionHistory: () => api.get('/transactions'),
   getPerNftEarnings: () => api.get('/rewards/per-nft'),
   refreshTraits: () => api.post('/nfts/refresh-traits'),
+
+  // Public settings (no auth) — includes claims maintenance flag + message
+  getPublicSettings: () => api.get('/settings/public'),
 };
 
 // Admin API calls

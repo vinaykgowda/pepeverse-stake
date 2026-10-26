@@ -5,7 +5,7 @@ import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana
 import { formatToken, formatSol } from '../../utils/format';
 import api from '../../services/api';
 
-const DaoStats = ({ walletAddress, onEarningsChange }) => {
+const DaoStats = ({ walletAddress, onEarningsChange, claimsDisabled = false, maintenanceMessage = '' }) => {
   const { wallet } = useWallet();
 
   // DAO rewards state
@@ -97,6 +97,10 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
   // DAO Claim flow
   const handleDaoClaimClick = useCallback(async () => {
     setDaoClaimError(null);
+    if (claimsDisabled) {
+      setDaoClaimError(maintenanceMessage || 'Staking claims are temporarily disabled for maintenance.');
+      return;
+    }
     try {
       const res = await api.daoUser.getClaimQuote(walletAddress);
       const data = res.data?.data || res.data || {};
@@ -110,7 +114,7 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
     } catch (e) {
       setDaoClaimError(e.response?.data?.message || e.message || 'Failed to get claim quote');
     }
-  }, [walletAddress, daoRewards]);
+  }, [walletAddress, daoRewards, claimsDisabled, maintenanceMessage]);
 
   const executeDaoClaimWithPayment = useCallback(async () => {
     // Prevent double-execution
@@ -264,10 +268,11 @@ const DaoStats = ({ walletAddress, onEarningsChange }) => {
       {/* Claim DAO Rewards button */}
       <button
         onClick={handleDaoClaimClick}
-        disabled={!hasClaimableRewards || daoClaimProcessing}
+        disabled={claimsDisabled || !hasClaimableRewards || daoClaimProcessing}
+        title={claimsDisabled ? (maintenanceMessage || 'Claims temporarily disabled for maintenance') : undefined}
         className="mt-4 w-full py-2.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)] disabled:bg-blue-950 disabled:text-blue-800 disabled:shadow-none disabled:cursor-not-allowed"
       >
-        {daoClaimProcessing ? 'Processing...' : 'Claim DAO Rewards'}
+        {claimsDisabled ? 'Claims Under Maintenance' : (daoClaimProcessing ? 'Processing...' : 'Claim DAO Rewards')}
       </button>
 
       {/* DAO Airdrops section */}

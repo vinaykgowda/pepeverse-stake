@@ -11,6 +11,7 @@ const { stakeNFTs, unstakeNFTs, getStakedNFTs, getStakingStats } = require('./so
 const logger = require('./utils/logger');
 const { calculateRewards, getClaimQuote, claimRewardsWithPayment, getTransactionHistory } = require('./solana-rewards-handler');
 const collectionCache = require('./services/collectionCache');
+const { getClaimsStatus, blockIfClaimsDisabled } = require('./services/claimsMaintenance');
 
 const { getPool } = require('./db');
 const pool = getPool();
@@ -304,6 +305,9 @@ router.get('/rewards/quote', verifyJWT, async (req, res) => {
 
 router.post('/rewards/claim', verifyJWT, claimLimiter, async (req, res) => {
   try {
+    // Maintenance gate: block claims while disabled (earning/display unaffected)
+    if (await blockIfClaimsDisabled(res)) return;
+
     const { paymentSignature } = req.body;
 
     logger.info('CLAIM: Starting claim with payment signature', { paymentSignature });
@@ -392,6 +396,26 @@ router.get('/admin/collections', verifyJWT, async (req, res) => {
 });
 
 // Create a public endpoint for collections for staking
+// Public settings for the frontend (no auth) — currently just the claims
+// maintenance flag + message so the UI can show a banner and disable claim
+// buttons without exposing the admin settings table.
+router.get('/settings/public', async (req, res) => {
+  try {
+    const claims = await getClaimsStatus();
+    res.json({
+      success: true,
+      data: {
+        claims_disabled: claims.disabled,
+        claims_maintenance_message: claims.message
+      }
+    });
+  } catch (error) {
+    logger.error('Error fetching public settings', { error });
+    // Fail open so the UI never gets stuck; claims remain enabled by default
+    res.json({ success: true, data: { claims_disabled: false, claims_maintenance_message: '' } });
+  }
+});
+
 // This is a new endpoint specifically for staking purposes
 // Requirements: 15.1 - Use newline-separated format
 router.get('/collections', verifyJWT, async (req, res) => {
