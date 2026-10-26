@@ -30,6 +30,45 @@ function getPool() {
   return _pool;
 }
 
+// ── Claims maintenance toggle ────────────────────────────────────────────────
+// Controlled by settings rows: claims_disabled ('true'|'false') and
+// claims_maintenance_message. Applies to BOTH main staking and DAO staking
+// reward claims. Earning/accrual and earnings display are unaffected.
+const CLAIMS_DEFAULT_MESSAGE =
+  'Staking reward claims are temporarily disabled for maintenance. ' +
+  'Your NFTs keep earning and your balance is safe — you can claim once maintenance is complete.';
+
+async function getClaimsStatus() {
+  try {
+    const result = await getPool().query(
+      `SELECT key_name, value FROM settings
+       WHERE key_name IN ('claims_disabled', 'claims_maintenance_message')`
+    );
+    const map = {};
+    result.rows.forEach(r => { map[r.key_name] = r.value; });
+    const disabled = ['true', '1', 'yes', 'on'].includes(
+      String(map['claims_disabled'] ?? '').trim().toLowerCase()
+    );
+    const message = (map['claims_maintenance_message'] && String(map['claims_maintenance_message']).trim())
+      || CLAIMS_DEFAULT_MESSAGE;
+    return { disabled, message };
+  } catch (e) {
+    // Fail open so a settings hiccup never traps funds
+    console.error('[claims-status]', e.message);
+    return { disabled: false, message: CLAIMS_DEFAULT_MESSAGE };
+  }
+}
+
+// Returns true (and responds 503) if claims are disabled; caller should stop.
+async function blockIfClaimsDisabled(res) {
+  const status = await getClaimsStatus();
+  if (status.disabled) {
+    res.status(503).json({ success: false, claims_disabled: true, message: status.message });
+    return true;
+  }
+  return false;
+}
+
 // ── Auth middleware ──────────────────────────────────────────────────────────
 function verifyJWT(req, res, next) {
   const token = req.header('x-auth-token');
@@ -824,9 +863,24 @@ stakingRouter.get('/rewards/quote', verifyJWT, async (req, res) => {
   } catch (e) { console.error('[rewards/quote]', e.message); res.status(500).json({ success: false, message: 'Failed to get claim quote' }); }
 });
 
+// GET /api/v1/settings/public — public flags for the frontend (claims maintenance)
+stakingRouter.get('/settings/public', async (req, res) => {
+  const status = await getClaimsStatus();
+  res.json({
+    success: true,
+    data: {
+      claims_disabled: status.disabled,
+      claims_maintenance_message: status.message
+    }
+  });
+});
+
 // POST /api/v1/rewards/claim
 stakingRouter.post('/rewards/claim', verifyJWT, async (req, res) => {
   try {
+    // Maintenance gate: block claims while disabled (earning/display unaffected)
+    if (await blockIfClaimsDisabled(res)) return;
+
     const { claimRewardsWithPayment } = require('../backend/src/solana-rewards-handler');
     const { paymentSignature } = req.body;
     

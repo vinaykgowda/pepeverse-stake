@@ -19,6 +19,32 @@ function getPool() {
   return _pool;
 }
 
+// ── Claims maintenance toggle (shared flag with main staking claims) ─────────
+async function blockIfClaimsDisabled(res) {
+  try {
+    const result = await getPool().query(
+      `SELECT key_name, value FROM settings
+       WHERE key_name IN ('claims_disabled', 'claims_maintenance_message')`
+    );
+    const map = {};
+    result.rows.forEach(r => { map[r.key_name] = r.value; });
+    const disabled = ['true', '1', 'yes', 'on'].includes(
+      String(map['claims_disabled'] ?? '').trim().toLowerCase()
+    );
+    if (disabled) {
+      const message = (map['claims_maintenance_message'] && String(map['claims_maintenance_message']).trim())
+        || 'Staking reward claims are temporarily disabled for maintenance. Your NFTs keep earning and your balance is safe — you can claim once maintenance is complete.';
+      res.status(503).json({ success: false, claims_disabled: true, message });
+      return true;
+    }
+    return false;
+  } catch (e) {
+    // Fail open so a settings hiccup never traps funds
+    console.error('[dao claims-status]', e.message);
+    return false;
+  }
+}
+
 // ── Shared reward calculation helper ────────────────────────────────────────
 // FIX: DAO trait rewards only accrue from MAX(claim_start, dtr.created_at)
 // This prevents backdating when a new DAO trait reward is added to existing staked NFTs.
@@ -332,6 +358,9 @@ router.post('/dao-airdrop-quote', async (req, res) => {
 // POST /dao-claim
 router.post('/dao-claim', async (req, res) => {
   try {
+    // Maintenance gate: block DAO claims while disabled (earning/display unaffected)
+    if (await blockIfClaimsDisabled(res)) return;
+
     const { wallet_address } = req.body;
     if (!wallet_address) return res.status(400).json({ success: false, message: 'wallet_address is required' });
     const { claimDaoRewards } = require('../backend/src/dao-rewards-handler');
